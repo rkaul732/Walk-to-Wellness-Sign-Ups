@@ -1,0 +1,59 @@
+create extension if not exists "pgcrypto";
+
+create table if not exists public.teams (
+  id uuid primary key default gen_random_uuid(),
+  name text not null check (length(trim(name)) > 0),
+  created_at timestamptz not null default now()
+);
+
+create unique index if not exists teams_name_lower_unique
+  on public.teams (lower(name));
+
+create table if not exists public.team_members (
+  id uuid primary key default gen_random_uuid(),
+  team_id uuid not null references public.teams(id) on delete cascade,
+  full_name text not null check (length(trim(full_name)) > 0),
+  joined_at timestamptz not null default now()
+);
+
+create unique index if not exists team_members_team_name_lower_unique
+  on public.team_members (team_id, lower(full_name));
+
+create index if not exists team_members_team_id_idx
+  on public.team_members (team_id);
+
+create table if not exists public.registrations (
+  id uuid primary key default gen_random_uuid(),
+  first_name text not null check (length(trim(first_name)) > 0),
+  last_name text not null check (length(trim(last_name)) > 0),
+  program_name text not null check (length(trim(program_name)) > 0),
+  office_site text not null check (length(trim(office_site)) > 0),
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.activities (
+  id uuid primary key default gen_random_uuid(),
+  participant_name text not null check (length(trim(participant_name)) > 0),
+  miles numeric(8, 2) not null check (miles > 0),
+  activity_type text not null check (length(trim(activity_type)) > 0),
+  duration text,
+  activity_date date not null,
+  team_id uuid references public.teams(id) on delete set null,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists activities_team_id_idx
+  on public.activities (team_id);
+
+create index if not exists activities_participant_name_lower_idx
+  on public.activities (lower(participant_name));
+
+alter table public.teams enable row level security;
+alter table public.team_members enable row level security;
+alter table public.registrations enable row level security;
+alter table public.activities enable row level security;
+
+grant select, insert, update, delete on public.teams to service_role;
+grant select, insert, update, delete on public.team_members to service_role;
+grant select, insert, update, delete on public.registrations to service_role;
+grant select, insert, update, delete on public.activities to service_role;

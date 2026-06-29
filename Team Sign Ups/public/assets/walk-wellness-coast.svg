@@ -1,0 +1,69 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900" role="img" aria-label="People walking near a beach path">
+  <defs>
+    <linearGradient id="sky" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0" stop-color="#bde6f5"/>
+      <stop offset="0.55" stop-color="#edf7fb"/>
+      <stop offset="1" stop-color="#fff6dd"/>
+    </linearGradient>
+    <linearGradient id="water" x1="0" x2="1" y1="0" y2="0">
+      <stop offset="0" stop-color="#6cc7c6"/>
+      <stop offset="1" stop-color="#2f7fab"/>
+    </linearGradient>
+    <linearGradient id="path" x1="0" x2="1" y1="0" y2="0">
+      <stop offset="0" stop-color="#f8e8c5"/>
+      <stop offset="1" stop-color="#d8b980"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1600" height="900" fill="url(#sky)"/>
+  <circle cx="1285" cy="155" r="78" fill="#ffd35a"/>
+  <path d="M0 430 C210 385 355 422 520 390 C720 350 880 400 1065 360 C1260 317 1420 353 1600 310 L1600 900 L0 900 Z" fill="url(#water)" opacity="0.92"/>
+  <path d="M0 486 C260 452 440 480 690 450 C980 414 1230 447 1600 397 L1600 900 L0 900 Z" fill="#f7edd9"/>
+  <path d="M520 900 C680 752 840 660 1018 575 C1196 490 1375 458 1600 432 L1600 900 Z" fill="url(#path)"/>
+  <path d="M0 670 C250 610 472 603 690 640 C480 682 255 743 0 840 Z" fill="#e9d8ae"/>
+  <path d="M1018 575 C1200 538 1408 517 1600 505" fill="none" stroke="#fffdf9" stroke-width="24" opacity="0.75"/>
+  <path d="M1030 626 C1203 590 1392 572 1600 562" fill="none" stroke="#c9a76d" stroke-width="8" opacity="0.36"/>
+
+  <g opacity="0.48" fill="#168b91">
+    <path d="M214 454 c38 -52 92 -42 122 2 c-50 -18 -82 -17 -122 -2z"/>
+    <path d="M356 433 c50 -65 118 -55 160 4 c-63 -22 -105 -22 -160 -4z"/>
+    <path d="M108 475 c42 -45 97 -36 122 0 c-47 -12 -83 -11 -122 0z"/>
+  </g>
+
+  <g transform="translate(1010 392)">
+    <g transform="translate(0 26)">
+      <circle cx="50" cy="40" r="26" fill="#4a2d2d"/>
+      <path d="M28 77 C42 58 66 58 81 77 L93 190 L18 190 Z" fill="#f2766b"/>
+      <path d="M38 188 L20 308" stroke="#273e55" stroke-width="18" stroke-linecap="round"/>
+      <path d="M74 188 L104 304" stroke="#273e55" stroke-width="18" stroke-linecap="round"/>
+      <path d="M30 104 L-14 160" stroke="#4a2d2d" stroke-width="15" stroke-linecap="round"/>
+      <path d="M82 105 L124 148" stroke="#4a2d2d" stroke-width="15" stroke-linecap="round"/>
+    </g>
+    <g transform="translate(130 0)">
+      <circle cx="58" cy="42" r="27" fill="#3c2a24"/>
+      <path d="M33 82 C50 60 75 60 91 82 L105 208 L19 208 Z" fill="#132f45"/>
+      <path d="M45 207 L20 335" stroke="#3b5d6d" stroke-width="19" stroke-linecap="round"/>
+      <path d="M81 207 L116 326" stroke="#3b5d6d" stroke-width="19" stroke-linecap="round"/>
+      <path d="M33 108 L-4 166" stroke="#3c2a24" stroke-width="15" stroke-linecap="round"/>
+      <path d="M94 108 L143 150" stroke="#3c2a24" stroke-width="15" stroke-linecap="round"/>
+    </g>
+    <g transform="translate(274 54)">
+      <circle cx="50" cy="37" r="24" fill="#5b342a"/>
+      <path d="M27 72 C42 54 62 54 76 72 L88 174 L19 174 Z" fill="#ffd35a"/>
+      <path d="M40 172 L14 286" stroke="#245f75" stroke-width="16" stroke-linecap="round"/>
+      <path d="M68 172 L98 282" stroke="#245f75" stroke-width="16" stroke-linecap="round"/>
+      <path d="M28 98 L-10 145" stroke="#5b342a" stroke-width="13" stroke-linecap="round"/>
+      <path d="M78 100 L120 134" stroke="#5b342a" stroke-width="13" stroke-linecap="round"/>
+    </g>
+    <g transform="translate(395 22)">
+      <circle cx="52" cy="38" r="25" fill="#2a2628"/>
+      <path d="M28 74 C44 55 66 55 82 74 L96 194 L18 194 Z" fill="#168b91"/>
+      <path d="M42 192 L13 310" stroke="#273e55" stroke-width="17" stroke-linecap="round"/>
+      <path d="M74 192 L112 305" stroke="#273e55" stroke-width="17" stroke-linecap="round"/>
+      <path d="M28 100 L-8 150" stroke="#2a2628" stroke-width="14" stroke-linecap="round"/>
+      <path d="M84 100 L130 138" stroke="#2a2628" stroke-width="14" stroke-linecap="round"/>
+    </g>
+  </g>
+
+  <path d="M0 838 C270 790 508 785 760 823 C1025 862 1280 844 1600 794 L1600 900 L0 900 Z" fill="#fff9ef" opacity="0.76"/>
+</svg>
