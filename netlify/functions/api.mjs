@@ -139,6 +139,66 @@ export async function handler(event) {
       return json(await loadPublicState(), 201);
     }
 
+    if (method === "POST" && pathname === "/api/distance") {
+      const body = readJson(event);
+      const teamId = cleanString(body.teamId);
+      const memberId = cleanString(body.memberId);
+      const entryMode = cleanString(body.entryMode) === "weekly" ? "weekly" : "daily";
+      const weekNumber = Number(body.weekNumber);
+      const currentState = await loadPublicState();
+      const team = currentState.teams.find((entry) => entry.id === teamId);
+
+      if (!teamId || !memberId || !Number.isInteger(weekNumber) || weekNumber < 1) {
+        throw validationError("Team, team member, entry type, and challenge week are required.");
+      }
+
+      if (!team) {
+        throw validationError("Team was not found.", 404);
+      }
+
+      const member = findMemberById(team, memberId);
+
+      if (!member) {
+        throw validationError("Team member was not found.", 404);
+      }
+
+      const dailyMiles = entryMode === "daily" && Array.isArray(body.dailyMiles)
+        ? body.dailyMiles.map((day) => ({
+            dayIndex: Number(day.dayIndex) || 0,
+            dayName: cleanString(day.dayName),
+            dateLabel: cleanString(day.dateLabel),
+            miles: roundMiles(validateMiles(day.miles, `${cleanString(day.dayName) || "daily"} miles`))
+          }))
+        : [];
+      const weeklyMiles = entryMode === "weekly"
+        ? roundMiles(validateMiles(body.weeklyMiles, "weekly miles"))
+        : 0;
+      const totalMiles = entryMode === "daily"
+        ? roundMiles(dailyMiles.reduce((total, day) => total + day.miles, 0))
+        : weeklyMiles;
+
+      if (totalMiles <= 0) {
+        throw validationError("Distance must be greater than zero.");
+      }
+
+      await supabaseFetch("distance_entries", {
+        method: "POST",
+        body: JSON.stringify({
+          team_id: teamId,
+          team_name: team.name,
+          member_id: memberId,
+          member_name: member.fullName,
+          entry_mode: entryMode,
+          week_number: weekNumber,
+          daily_miles: dailyMiles,
+          weekly_miles: weeklyMiles,
+          total_miles: totalMiles
+        })
+      });
+
+      return json(await loadPublicState(), 201);
+    }
+
     return json({ error: "Not found." }, 404);
   } catch (error) {
     return json({ error: error.status === 500 ? "Something went wrong." : error.message }, error.status || 500);
@@ -170,11 +230,12 @@ function readJson(event) {
 }
 
 async function loadPublicState() {
-  const [teamRows, memberRows, registrationRows, activityRows] = await Promise.all([
+  const [teamRows, memberRows, registrationRows, activityRows, distanceRows] = await Promise.all([
     supabaseFetch("teams?select=id,name,created_at&order=name.asc"),
     supabaseFetch("team_members?select=id,team_id,full_name,joined_at&order=joined_at.asc"),
     supabaseFetch("registrations?select=id,first_name,last_name,program_name,office_site,created_at&order=created_at.desc"),
-    supabaseFetch("activities?select=id,participant_name,miles,activity_type,duration,activity_date,team_id,created_at&order=created_at.desc")
+    supabaseFetch("activities?select=id,participant_name,miles,activity_type,duration,activity_date,team_id,created_at&order=created_at.desc"),
+    supabaseFetch("distance_entries?select=id,team_id,team_name,member_id,member_name,entry_mode,week_number,daily_miles,weekly_miles,total_miles,created_at&order=created_at.desc")
   ]);
 
   const membersByTeam = new Map();
@@ -212,6 +273,19 @@ async function loadPublicState() {
       duration: row.duration || "",
       activityDate: row.activity_date,
       teamId: row.team_id,
+      createdAt: row.created_at
+    })),
+    distanceEntries: distanceRows.map((row) => ({
+      id: row.id,
+      teamId: row.team_id,
+      teamName: row.team_name,
+      memberId: row.member_id,
+      memberName: row.member_name,
+      entryMode: row.entry_mode,
+      weekNumber: Number(row.week_number) || 1,
+      dailyMiles: Array.isArray(row.daily_miles) ? row.daily_miles : [],
+      weeklyMiles: Number(row.weekly_miles) || 0,
+      totalMiles: Number(row.total_miles) || 0,
       createdAt: row.created_at
     }))
   };
@@ -265,6 +339,9 @@ function getPublicState(state) {
     activities: [...state.activities].sort((a, b) =>
       b.createdAt.localeCompare(a.createdAt)
     ),
+    distanceEntries: [...state.distanceEntries].sort((a, b) =>
+      b.createdAt.localeCompare(a.createdAt)
+    ),
     totals: buildTotals({ ...state, teams })
   };
 }
@@ -291,6 +368,36 @@ function buildTotals(state) {
       name: existingMember.name || activity.participantName,
       miles: existingMember.miles + miles
     });
+
+    if (teamId === "unassigned" && !teamById.has("unassigned")) {
+      teamById.set("unassigned", {
+        id: "unassigned",
+        name: "Unassigned",
+        members: []
+      });
+    }
+  }
+
+  for (const entry of state.distanceEntries || []) {
+    const miles = Number(entry.totalMiles) || 0;
+    const teamId = teamById.has(entry.teamId) ? entry.teamId : "unassigned";
+    const existingMember = memberTotals.get(nameKey(entry.memberName)) || {
+      name: entry.memberName,
+      miles: 0
+    };
+
+    if (!teamTotals.has(teamId)) {
+      teamTotals.set(teamId, 0);
+    }
+
+    teamTotals.set(teamId, teamTotals.get(teamId) + miles);
+
+    if (entry.memberName) {
+      memberTotals.set(nameKey(entry.memberName), {
+        name: existingMember.name || entry.memberName,
+        miles: existingMember.miles + miles
+      });
+    }
 
     if (teamId === "unassigned" && !teamById.has("unassigned")) {
       teamById.set("unassigned", {
@@ -330,6 +437,10 @@ function findTeamByMemberName(state, participantName) {
   );
 }
 
+function findMemberById(team, memberId) {
+  return team.members.find((member) => member.id === memberId) || null;
+}
+
 function splitMemberNames(value) {
   if (Array.isArray(value)) {
     return value.map(cleanString).filter(Boolean);
@@ -343,6 +454,16 @@ function splitMemberNames(value) {
 
 function cleanString(value) {
   return String(value ?? "").trim().replace(/\s+/g, " ");
+}
+
+function validateMiles(value, label) {
+  const cleanValue = String(value ?? "").trim();
+
+  if (!/^\d+(\.\d{1,2})?$/.test(cleanValue)) {
+    throw validationError(`Please enter ${label} with no more than two decimal places.`);
+  }
+
+  return Number(cleanValue);
 }
 
 function nameKey(value) {

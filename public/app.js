@@ -1,6 +1,7 @@
 const routes = {
   register: "Register for Walk to Wellness",
   "create-team": "Create a Team",
+  "enter-distance": "Enter Distance",
   "join-team": "Join a Team",
   "step-submission": "Step Submission",
   "live-feed": "Live Feed"
@@ -8,14 +9,42 @@ const routes = {
 
 const app = document.querySelector("#app");
 const toast = document.querySelector("#toast");
+const weekColors = [
+  "#9ec9e8",
+  "#7fb3dc",
+  "#4fa4d8",
+  "#376f98",
+  "#f58fbd",
+  "#f8a0a2",
+  "#ffc59e",
+  "#fedc72",
+  "#d9e957",
+  "#b9df68",
+  "#90d3c7",
+  "#7cc3eb",
+  "#b4a7e7",
+  "#f2a5d5",
+  "#ffd0d7",
+  "#f7df93",
+  "#caeef2",
+  "#e3a0cd",
+  "#fffec9",
+  "#d9d9ec"
+];
+
 let state = null;
 let expandedTeamId = null;
+let selectedDistanceTeamId = "";
+let selectedDistanceMemberId = "";
+let selectedDistanceMode = "daily";
+let selectedDistanceWeek = getDefaultChallengeWeek();
 let toastTimer = null;
 
 document.addEventListener("DOMContentLoaded", init);
 window.addEventListener("hashchange", render);
 document.addEventListener("submit", handleSubmit);
 document.addEventListener("click", handleClick);
+document.addEventListener("change", handleChange);
 
 async function init() {
   renderLoading();
@@ -26,6 +55,7 @@ async function init() {
 async function refreshState() {
   const response = await fetch("/api/state", { cache: "no-store" });
   state = await response.json();
+  state.distanceEntries = state.distanceEntries || [];
 }
 
 function getRoute() {
@@ -48,6 +78,7 @@ function render() {
 
   if (route === "register") renderRegisterPage();
   if (route === "create-team") renderCreateTeamPage();
+  if (route === "enter-distance") renderEnterDistancePage();
   if (route === "join-team") renderJoinTeamPage();
   if (route === "step-submission") renderStepSubmissionPage();
   if (route === "live-feed") renderLiveFeedPage();
@@ -62,15 +93,14 @@ function updateActiveNav(route) {
 function renderRegisterPage() {
   const teamCount = state.teams.length;
   const memberCount = state.teams.reduce((total, team) => total + team.members.length, 0);
-  const totalMiles = state.totals.totalMilesByTeam.reduce((total, row) => total + row.miles, 0);
+  const totalMiles = getTeamWeeklyRows().reduce((total, row) => total + row.totalMiles, 0);
   const selectedTeam = state.teams.find((team) => team.id === expandedTeamId);
 
   app.innerHTML = `
     <section class="page">
-      <div class="hero">
+      <section class="hero">
         <div class="hero-content">
-          <p class="eyebrow">HR Debrief</p>
-          <p class="program-brand">Bright Harbor Healthcare</p>
+          <p class="eyebrow">Bright Harbor Healthcare</p>
           <h1>Walk to Wellness '26</h1>
           <p class="hero-tagline">Step Into Better Health, One Walk at a Time.</p>
           <p>Build movement into the workday through short walks, outdoor breaks, and shared progress with your colleagues.</p>
@@ -79,11 +109,24 @@ function renderRegisterPage() {
             <a class="secondary-button" href="#join-team">Join a Team</a>
           </div>
         </div>
-      </div>
+      </section>
 
-      ${renderProgramIntro()}
+      <section class="content-band">
+        <div class="intro-grid">
+          <article class="intro-card">
+            <p class="eyebrow">Step Into Better Health</p>
+            <h2>One walk at a time.</h2>
+            <p>Walk to Wellness is a simple, inclusive challenge that encourages employees to stay active while contributing to a shared goal.</p>
+          </article>
+          <article class="intro-card">
+            <p class="eyebrow">How it Works</p>
+            <h2>Form a team, log miles, follow the leaderboard.</h2>
+            <p>Teams enter distance by daily or weekly totals, and the Live Feed updates team mileage by challenge week.</p>
+          </article>
+        </div>
+      </section>
 
-      <div class="content-band">
+      <section class="content-band signup-section">
         <div class="content-grid">
           <section class="panel" aria-labelledby="team-list-title">
             <div class="section-header">
@@ -96,7 +139,7 @@ function renderRegisterPage() {
             <div class="stats-row">
               ${renderStat("Teams", teamCount)}
               ${renderStat("Members", memberCount)}
-              ${renderStat("Miles", formatMiles(totalMiles))}
+              ${renderStat("Miles", formatNumber(totalMiles))}
             </div>
 
             ${teamCount ? renderClickableTeamList() : renderNoTeams()}
@@ -143,43 +186,37 @@ function renderRegisterPage() {
             </form>
           </section>
         </div>
-      </div>
+      </section>
+
+      ${renderRecapSection()}
     </section>
   `;
 }
 
-function renderProgramIntro() {
+function renderRecapSection() {
   return `
-    <section class="intro-band" aria-label="Walk to Wellness overview">
-      <div class="intro-grid">
-        <article class="intro-card lavender-card">
-          <p class="eyebrow">Step Into Better Health</p>
-          <h2>One walk at a time.</h2>
-          <p>Walk to Wellness is a simple, inclusive challenge that encourages employees to stay active while contributing to a shared goal.</p>
-        </article>
-        <article class="intro-card coral-card">
-          <p class="eyebrow">How it Works</p>
-          <h2>Form a team, log miles, follow the leaderboard.</h2>
-          <p>Teams record activity through the Step Submission page, and the Live Feed updates team mileage and the top three members.</p>
-        </article>
+    <section class="recap-section" aria-label="Walk to Wellness 2025 recap">
+      <div class="section-break">
+        <span></span>
+        <p>Walk to Wellness '25 Recap</p>
+        <span></span>
       </div>
-      <div class="recap-strip" aria-label="Walk to Wellness 2025 recap">
+      <div class="recap-strip">
         <div>
-          <span>Walk to Wellness '25 Recap</span>
+          <span>Miles Walked</span>
           <strong>20,783</strong>
-          <small>Miles Walked</small>
         </div>
         <div>
+          <span>Participants</span>
           <strong>113</strong>
-          <small>Participants</small>
         </div>
         <div>
+          <span>Teams</span>
           <strong>7</strong>
-          <small>Teams</small>
         </div>
         <div>
+          <span>Countries Traveled</span>
           <strong>5</strong>
-          <small>Countries Traveled</small>
         </div>
       </div>
     </section>
@@ -193,7 +230,7 @@ function renderCreateTeamPage() {
         <div class="section-header">
           <div>
             <h1>Create a Team</h1>
-            <p>Existing team names appear first.</p>
+            <p>Existing team names and members appear first.</p>
           </div>
         </div>
 
@@ -220,6 +257,130 @@ function renderCreateTeamPage() {
         </section>
       </div>
     </section>
+  `;
+}
+
+function renderEnterDistancePage() {
+  const selectedTeam = state.teams.find((team) => team.id === selectedDistanceTeamId) || state.teams[0] || null;
+
+  if (selectedTeam && selectedDistanceTeamId !== selectedTeam.id) {
+    selectedDistanceTeamId = selectedTeam.id;
+  }
+
+  const selectedMembers = selectedTeam?.members || [];
+  const selectedMember = selectedMembers.find((member) => member.id === selectedDistanceMemberId) || selectedMembers[0] || null;
+
+  if (selectedMember && selectedDistanceMemberId !== selectedMember.id) {
+    selectedDistanceMemberId = selectedMember.id;
+  }
+
+  const weeks = getChallengeWeeks();
+  const activeWeek = weeks.find((week) => week.weekNumber === Number(selectedDistanceWeek)) || weeks[0];
+
+  app.innerHTML = `
+    <section class="page content-band">
+      <div class="single-column">
+        <div class="section-header">
+          <div>
+            <h1>Enter Distance</h1>
+            <p>Choose a team, member, challenge week, and distance entry type.</p>
+          </div>
+        </div>
+
+        <section class="form-panel distance-widget" aria-labelledby="distance-entry-title">
+          <h2 id="distance-entry-title">Distance Entry</h2>
+          ${
+            state.teams.length
+              ? `<form class="form-grid" data-action="distance">
+                  <div class="form-grid two-column">
+                    <label>
+                      Team
+                      <select name="teamId" data-distance-team required>
+                        ${state.teams
+                          .map(
+                            (team) => `<option value="${escapeAttribute(team.id)}" ${team.id === selectedDistanceTeamId ? "selected" : ""}>${escapeHtml(team.name)}</option>`
+                          )
+                          .join("")}
+                      </select>
+                    </label>
+                    <label>
+                      Team Member
+                      <select name="memberId" data-distance-member required ${selectedMembers.length ? "" : "disabled"}>
+                        ${
+                          selectedMembers.length
+                            ? selectedMembers
+                                .map(
+                                  (member) => `<option value="${escapeAttribute(member.id)}" ${member.id === selectedDistanceMemberId ? "selected" : ""}>${escapeHtml(member.fullName)}</option>`
+                                )
+                                .join("")
+                            : `<option value="">No members yet</option>`
+                        }
+                      </select>
+                    </label>
+                  </div>
+                  <div class="form-grid two-column">
+                    <label>
+                      Challenge Week
+                      <select name="weekNumber" data-distance-week required>
+                        ${weeks
+                          .map(
+                            (week) => `<option value="${week.weekNumber}" ${week.weekNumber === activeWeek.weekNumber ? "selected" : ""}>Week ${week.weekNumber}: ${escapeHtml(week.rangeLabel)}</option>`
+                          )
+                          .join("")}
+                      </select>
+                    </label>
+                    <label>
+                      Entry Type
+                      <select name="entryMode" data-distance-mode required>
+                        <option value="daily" ${selectedDistanceMode === "daily" ? "selected" : ""}>Daily totals</option>
+                        <option value="weekly" ${selectedDistanceMode === "weekly" ? "selected" : ""}>Weekly totals</option>
+                      </select>
+                    </label>
+                  </div>
+                  ${
+                    selectedDistanceMode === "daily"
+                      ? renderDailyDistanceInputs(activeWeek)
+                      : renderWeeklyDistanceInput(activeWeek)
+                  }
+                  <div class="button-row">
+                    <button class="primary-button" type="submit" ${selectedMembers.length ? "" : "disabled"}>Save Distance</button>
+                  </div>
+                </form>`
+              : `<div class="empty-zero"><div><strong>0</strong><p>Create a team before entering distance.</p></div></div>`
+          }
+        </section>
+      </div>
+    </section>
+  `;
+}
+
+function renderDailyDistanceInputs(week) {
+  return `
+    <fieldset class="daily-calendar">
+      <legend>Daily Totals for Week ${week.weekNumber}</legend>
+      <div class="day-grid">
+        ${week.days
+          .map(
+            (day) => `
+              <label class="day-entry">
+                <span>${escapeHtml(day.dayName)}</span>
+                <small>${escapeHtml(day.dateLabel)}</small>
+                <input name="daily_${day.dayIndex}" inputmode="decimal" placeholder="0" required data-mile-input>
+              </label>`
+          )
+          .join("")}
+      </div>
+    </fieldset>
+  `;
+}
+
+function renderWeeklyDistanceInput(week) {
+  return `
+    <label class="weekly-entry">
+      Enter Total Miles for Week ${week.weekNumber}
+      <span>${escapeHtml(week.rangeLabel)}</span>
+      <input name="weeklyMiles" inputmode="decimal" placeholder="0" required data-mile-input>
+    </label>
   `;
 }
 
@@ -254,7 +415,7 @@ function renderStepSubmissionPage() {
         <div class="section-header">
           <div>
             <h1>Step Submission</h1>
-            <p>Submit activity miles for the Live Feed.</p>
+            <p>Submit an individual activity entry for the Live Feed.</p>
           </div>
         </div>
 
@@ -304,31 +465,22 @@ function renderStepSubmissionPage() {
 
 function renderLiveFeedPage() {
   app.innerHTML = `
-    <section class="page content-band">
-      <div class="single-column">
+    <section class="page content-band live-feed-page">
+      <div class="live-feed-shell">
         <div class="section-header">
           <div>
             <h1>Live Feed</h1>
-            <p>Team totals and top member mileage.</p>
+            <p>Team mileage by challenge week.</p>
           </div>
         </div>
-
-        <div class="chart-stack">
-          <section class="panel" aria-labelledby="team-miles-title">
-            <h2 id="team-miles-title">Total Miles Walked by Team</h2>
-            ${renderTeamMilesChart()}
-          </section>
-
-          <section class="panel" aria-labelledby="top-members-title">
-            <h2 id="top-members-title">Top Three Members</h2>
-            ${renderTopMembers()}
-          </section>
-
-          <section class="panel" aria-labelledby="recent-title">
-            <h2 id="recent-title">Recent Submissions</h2>
-            ${renderRecentSubmissions()}
-          </section>
-        </div>
+        <section class="panel chart-panel" aria-labelledby="team-weekly-title">
+          <h2 id="team-weekly-title">Miles by Team and Week</h2>
+          ${renderWeeklyStackedChart()}
+        </section>
+        <section class="panel top-members-panel" aria-labelledby="top-members-title">
+          <h2 id="top-members-title">Top Three Members</h2>
+          ${renderTopMembers()}
+        </section>
       </div>
     </section>
   `;
@@ -422,38 +574,72 @@ function renderMembers(members) {
   `;
 }
 
-function renderTeamMilesChart() {
-  const totals = state.totals.totalMilesByTeam;
+function renderWeeklyStackedChart() {
+  const rows = getTeamWeeklyRows();
 
-  if (!totals.length || totals.every((row) => row.miles === 0)) {
-    return `<p class="muted">No step submissions yet.</p>`;
+  if (!rows.length || rows.every((row) => row.totalMiles === 0)) {
+    return `<p class="muted">No distance entries yet.</p>`;
   }
 
-  const maxMiles = Math.max(...totals.map((row) => row.miles), 1);
+  const axisMax = getAxisMax(Math.max(...rows.map((row) => row.totalMiles), 1));
+  const ticks = getAxisTicks(axisMax);
+  const weeksWithData = getChallengeWeeks().filter((week) =>
+    rows.some((row) => (row.weekTotals[week.weekNumber] || 0) > 0)
+  );
+  const legendWeeks = weeksWithData.length ? weeksWithData : getChallengeWeeks().slice(0, 9);
+  const latest = getLatestUpdateLabel();
 
   return `
-    <div class="bar-chart" role="list">
-      ${totals
-        .map((row) => {
-          const width = Math.max((row.miles / maxMiles) * 100, row.miles > 0 ? 3 : 0);
+    <div class="weekly-chart">
+      <div class="week-legend" aria-label="Challenge weeks">
+        ${legendWeeks
+          .map(
+            (week) => `
+              <span>
+                <i style="background:${getWeekColor(week.weekNumber)}"></i>
+                Week ${week.weekNumber}
+              </span>`
+          )
+          .join("")}
+      </div>
+      <div class="stacked-chart" style="--axis-max:${axisMax}">
+        ${rows
+          .map(
+            (row) => `
+              <div class="stacked-row">
+                <div class="stacked-label">${escapeHtml(row.teamName)} (${row.memberCount})</div>
+                <div class="stacked-track">
+                  ${getChallengeWeeks()
+                    .map((week) => {
+                      const miles = row.weekTotals[week.weekNumber] || 0;
+                      const width = (miles / axisMax) * 100;
 
-          return `
-            <div class="bar-row" role="listitem">
-              <div class="bar-label">${escapeHtml(row.teamName)}</div>
-              <div class="bar-track" aria-hidden="true">
-                <div class="bar-fill" style="width: ${width}%"></div>
-              </div>
-              <div class="bar-value">${formatMiles(row.miles)}</div>
-            </div>
-          `;
-        })
-        .join("")}
+                      return miles > 0
+                        ? `<span class="stacked-segment" title="Week ${week.weekNumber}: ${formatNumber(miles)} miles" style="width:${width}%; background:${getWeekColor(week.weekNumber)}"></span>`
+                        : "";
+                    })
+                    .join("")}
+                </div>
+                <div class="stacked-total">${formatNumber(row.totalMiles)}</div>
+              </div>`
+          )
+          .join("")}
+        <div class="axis-row">
+          <span></span>
+          <div class="axis-line">
+            ${ticks.map((tick) => `<span style="left:${(tick / axisMax) * 100}%">${formatNumber(tick)}</span>`).join("")}
+          </div>
+          <span></span>
+        </div>
+        <div class="axis-title">Miles</div>
+      </div>
+      <p class="last-updated">Last Updated: ${escapeHtml(latest)}</p>
     </div>
   `;
 }
 
 function renderTopMembers() {
-  const members = state.totals.topMembers;
+  const members = getTopMembers();
 
   if (!members.length) {
     return `<p class="muted">No member mileage has been submitted yet.</p>`;
@@ -467,34 +653,11 @@ function renderTopMembers() {
             <li class="rank-row">
               <span class="rank-number">${member.rank}</span>
               <strong>${escapeHtml(member.name)}</strong>
-              <span class="bar-value">${formatMiles(member.miles)}</span>
+              <span class="bar-value">${formatNumber(member.miles)}</span>
             </li>`
         )
         .join("")}
     </ol>
-  `;
-}
-
-function renderRecentSubmissions() {
-  if (!state.activities.length) {
-    return `<p class="muted">No activity submissions yet.</p>`;
-  }
-
-  return `
-    <ul class="recent-feed">
-      ${state.activities
-        .slice(0, 8)
-        .map((activity) => {
-          const team = state.teams.find((entry) => entry.id === activity.teamId);
-          return `
-            <li>
-              <strong>${escapeHtml(activity.participantName)}</strong>
-              <span class="muted">submitted ${formatMiles(activity.miles)} for ${escapeHtml(activity.activityType)} on ${escapeHtml(activity.activityDate)}${team ? ` with ${escapeHtml(team.name)}` : ""}.</span>
-            </li>
-          `;
-        })
-        .join("")}
-    </ul>
   `;
 }
 
@@ -528,6 +691,11 @@ async function handleSubmit(event) {
       showToast("Step submission saved.");
     }
 
+    if (action === "distance") {
+      await submitDistance(form, formData);
+      showToast("Distance saved.");
+    }
+
     await refreshState();
     form.reset();
     render();
@@ -536,12 +704,66 @@ async function handleSubmit(event) {
   }
 }
 
+async function submitDistance(form, formData) {
+  const entryMode = formData.entryMode;
+  const body = {
+    teamId: formData.teamId,
+    memberId: formData.memberId,
+    entryMode,
+    weekNumber: Number(formData.weekNumber)
+  };
+
+  if (entryMode === "daily") {
+    const dailyMiles = getChallengeWeeks()
+      .find((week) => week.weekNumber === body.weekNumber)
+      .days.map((day) => {
+        const value = formData[`daily_${day.dayIndex}`];
+        assertMiles(value, `${day.dayName} miles`);
+        return {
+          dayIndex: day.dayIndex,
+          dayName: day.dayName,
+          dateLabel: day.dateLabel,
+          miles: Number(value)
+        };
+      });
+
+    body.dailyMiles = dailyMiles;
+  } else {
+    assertMiles(formData.weeklyMiles, "weekly miles");
+    body.weeklyMiles = Number(formData.weeklyMiles);
+  }
+
+  await postJson("/api/distance", body);
+}
+
 function handleClick(event) {
   const toggle = event.target.closest("[data-team-toggle]");
   if (!toggle) return;
 
   expandedTeamId = expandedTeamId === toggle.dataset.teamToggle ? null : toggle.dataset.teamToggle;
   render();
+}
+
+function handleChange(event) {
+  if (event.target.matches("[data-distance-team]")) {
+    selectedDistanceTeamId = event.target.value;
+    selectedDistanceMemberId = "";
+    render();
+  }
+
+  if (event.target.matches("[data-distance-member]")) {
+    selectedDistanceMemberId = event.target.value;
+  }
+
+  if (event.target.matches("[data-distance-mode]")) {
+    selectedDistanceMode = event.target.value;
+    render();
+  }
+
+  if (event.target.matches("[data-distance-week]")) {
+    selectedDistanceWeek = Number(event.target.value);
+    render();
+  }
 }
 
 async function postJson(url, body) {
@@ -557,26 +779,240 @@ async function postJson(url, body) {
   }
 
   state = payload;
+  state.distanceEntries = state.distanceEntries || [];
   return payload;
 }
 
-function showToast(message) {
-  toast.textContent = message;
-  toast.classList.add("show");
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => {
-    toast.classList.remove("show");
-  }, 2800);
+function getChallengeWeeks() {
+  const year = new Date().getFullYear();
+  const start = new Date(year, 5, 6);
+  const end = new Date(year, 9, 18);
+  const weeks = [];
+  const dayNames = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+  let cursor = new Date(start);
+  let weekNumber = 1;
+
+  while (cursor <= end) {
+    const weekStart = new Date(cursor);
+    const weekEnd = new Date(cursor);
+    weekEnd.setDate(weekEnd.getDate() + 6);
+    const cappedEnd = weekEnd > end ? end : weekEnd;
+    const days = [];
+
+    for (let index = 0; index < 7; index += 1) {
+      const dayDate = new Date(weekStart);
+      dayDate.setDate(dayDate.getDate() + index);
+      if (dayDate <= end) {
+        days.push({
+          dayIndex: index,
+          dayName: dayNames[index],
+          isoDate: toISODate(dayDate),
+          dateLabel: formatShortDate(dayDate)
+        });
+      }
+    }
+
+    weeks.push({
+      weekNumber,
+      startDate: toISODate(weekStart),
+      endDate: toISODate(cappedEnd),
+      rangeLabel: `${formatShortDate(weekStart)} - ${formatShortDate(cappedEnd)}`,
+      days
+    });
+
+    cursor.setDate(cursor.getDate() + 7);
+    weekNumber += 1;
+  }
+
+  return weeks;
+}
+
+function getDefaultChallengeWeek() {
+  const today = new Date();
+  const week = getChallengeWeeks().find((entry) => {
+    const start = new Date(`${entry.startDate}T00:00:00`);
+    const end = new Date(`${entry.endDate}T23:59:59`);
+    return today >= start && today <= end;
+  });
+
+  return week?.weekNumber || 1;
+}
+
+function getWeekNumberForDate(value) {
+  if (!value) return null;
+
+  const date = new Date(`${value}T12:00:00`);
+  const week = getChallengeWeeks().find((entry) => {
+    const start = new Date(`${entry.startDate}T00:00:00`);
+    const end = new Date(`${entry.endDate}T23:59:59`);
+    return date >= start && date <= end;
+  });
+
+  return week?.weekNumber || null;
+}
+
+function getTeamWeeklyRows() {
+  const rows = new Map();
+
+  for (const team of state.teams) {
+    rows.set(team.id, {
+      teamId: team.id,
+      teamName: team.name,
+      memberCount: team.members.length,
+      weekTotals: {},
+      totalMiles: 0
+    });
+  }
+
+  for (const activity of state.activities || []) {
+    const teamId = activity.teamId || "unassigned";
+    const weekNumber = getWeekNumberForDate(activity.activityDate);
+    const miles = Number(activity.miles) || 0;
+
+    if (!weekNumber || miles <= 0) continue;
+
+    if (!rows.has(teamId)) {
+      rows.set(teamId, {
+        teamId,
+        teamName: "Unassigned",
+        memberCount: 0,
+        weekTotals: {},
+        totalMiles: 0
+      });
+    }
+
+    addWeeklyMiles(rows.get(teamId), weekNumber, miles);
+  }
+
+  for (const entry of state.distanceEntries || []) {
+    const teamId = entry.teamId || "unassigned";
+    const weekNumber = Number(entry.weekNumber);
+    const miles = Number(entry.totalMiles) || 0;
+
+    if (!weekNumber || miles <= 0) continue;
+
+    if (!rows.has(teamId)) {
+      rows.set(teamId, {
+        teamId,
+        teamName: entry.teamName || "Unassigned",
+        memberCount: 0,
+        weekTotals: {},
+        totalMiles: 0
+      });
+    }
+
+    addWeeklyMiles(rows.get(teamId), weekNumber, miles);
+  }
+
+  return [...rows.values()].sort((a, b) => b.totalMiles - a.totalMiles || a.teamName.localeCompare(b.teamName));
+}
+
+function addWeeklyMiles(row, weekNumber, miles) {
+  row.weekTotals[weekNumber] = roundMiles((row.weekTotals[weekNumber] || 0) + miles);
+  row.totalMiles = roundMiles(row.totalMiles + miles);
+}
+
+function getTopMembers() {
+  const members = new Map();
+
+  for (const activity of state.activities || []) {
+    addMemberMiles(members, activity.participantName, Number(activity.miles) || 0);
+  }
+
+  for (const entry of state.distanceEntries || []) {
+    addMemberMiles(members, entry.memberName, Number(entry.totalMiles) || 0);
+  }
+
+  return [...members.values()]
+    .sort((a, b) => b.miles - a.miles || a.name.localeCompare(b.name))
+    .slice(0, 3)
+    .map((member, index) => ({
+      rank: index + 1,
+      name: member.name,
+      miles: roundMiles(member.miles)
+    }));
+}
+
+function addMemberMiles(map, name, miles) {
+  const cleanName = cleanString(name);
+  if (!cleanName || miles <= 0) return;
+
+  const key = cleanName.toLocaleLowerCase();
+  const existing = map.get(key) || { name: cleanName, miles: 0 };
+  existing.miles = roundMiles(existing.miles + miles);
+  map.set(key, existing);
+}
+
+function getLatestUpdateLabel() {
+  const dates = [
+    ...(state.activities || []).map((activity) => activity.createdAt),
+    ...(state.distanceEntries || []).map((entry) => entry.createdAt)
+  ].filter(Boolean);
+
+  if (!dates.length) {
+    return "No entries yet";
+  }
+
+  const latest = new Date(dates.sort().at(-1));
+  return latest.toLocaleString(undefined, {
+    month: "numeric",
+    day: "numeric",
+    year: "2-digit",
+    hour: "numeric",
+    minute: "2-digit"
+  });
+}
+
+function getAxisMax(value) {
+  const max = Math.max(value, 10);
+  const magnitude = 10 ** Math.floor(Math.log10(max));
+  return Math.ceil(max / magnitude) * magnitude;
+}
+
+function getAxisTicks(axisMax) {
+  const step = axisMax / 6;
+  return Array.from({ length: 7 }, (_, index) => Math.round(step * index));
+}
+
+function getWeekColor(weekNumber) {
+  return weekColors[(weekNumber - 1) % weekColors.length];
+}
+
+function assertMiles(value, label) {
+  const cleanValue = String(value ?? "").trim();
+
+  if (!/^\d+(\.\d{1,2})?$/.test(cleanValue)) {
+    throw new Error(`Please enter ${label} with no more than two decimal places.`);
+  }
 }
 
 function pluralize(word, count) {
   return count === 1 ? word : `${word}s`;
 }
 
-function formatMiles(value) {
-  return `${Number(value || 0).toLocaleString(undefined, {
+function formatNumber(value) {
+  return Number(value || 0).toLocaleString(undefined, {
     maximumFractionDigits: 2
-  })} mi`;
+  });
+}
+
+function formatShortDate(date) {
+  return date.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric"
+  });
+}
+
+function toISODate(date) {
+  return date.toISOString().slice(0, 10);
+}
+
+function roundMiles(value) {
+  return Math.round((Number(value) || 0) * 100) / 100;
+}
+
+function cleanString(value) {
+  return String(value ?? "").trim().replace(/\s+/g, " ");
 }
 
 function escapeHtml(value) {

@@ -17,7 +17,8 @@ const DATA_PATH =
 const initialState = {
   teams: [],
   registrations: [],
-  activities: []
+  activities: [],
+  distanceEntries: []
 };
 
 const mimeTypes = {
@@ -80,6 +81,9 @@ function normalizeState(state) {
       : [],
     activities: Array.isArray(source.activities)
       ? source.activities.map(normalizeActivity)
+      : [],
+    distanceEntries: Array.isArray(source.distanceEntries)
+      ? source.distanceEntries.map(normalizeDistanceEntry)
       : []
   };
 }
@@ -125,6 +129,31 @@ function normalizeActivity(activity) {
   };
 }
 
+function normalizeDistanceEntry(entry) {
+  const dailyMiles = Array.isArray(entry.dailyMiles)
+    ? entry.dailyMiles.map((day) => ({
+        dayIndex: Number(day.dayIndex) || 0,
+        dayName: cleanString(day.dayName),
+        dateLabel: cleanString(day.dateLabel),
+        miles: roundMiles(day.miles)
+      }))
+    : [];
+
+  return {
+    id: cleanString(entry.id) || crypto.randomUUID(),
+    teamId: cleanString(entry.teamId),
+    teamName: cleanString(entry.teamName),
+    memberId: cleanString(entry.memberId),
+    memberName: cleanString(entry.memberName),
+    entryMode: cleanString(entry.entryMode) === "weekly" ? "weekly" : "daily",
+    weekNumber: Number(entry.weekNumber) || 1,
+    dailyMiles,
+    weeklyMiles: roundMiles(entry.weeklyMiles),
+    totalMiles: roundMiles(entry.totalMiles),
+    createdAt: cleanString(entry.createdAt) || new Date().toISOString()
+  };
+}
+
 function getPublicState(state) {
   const teams = [...state.teams]
     .map((team) => ({
@@ -139,6 +168,9 @@ function getPublicState(state) {
       b.createdAt.localeCompare(a.createdAt)
     ),
     activities: [...state.activities].sort((a, b) =>
+      b.createdAt.localeCompare(a.createdAt)
+    ),
+    distanceEntries: [...state.distanceEntries].sort((a, b) =>
       b.createdAt.localeCompare(a.createdAt)
     ),
     totals: buildTotals({ ...state, teams })
@@ -174,6 +206,37 @@ function buildTotals(state) {
       teamById.set("unassigned", {
         id: "unassigned",
         name: teamName,
+        members: []
+      });
+    }
+  }
+
+  for (const entry of state.distanceEntries || []) {
+    const miles = Number(entry.totalMiles) || 0;
+    const teamId = teamById.has(entry.teamId) ? entry.teamId : "unassigned";
+    const memberKey = nameKey(entry.memberName);
+    const existingMember = memberTotals.get(memberKey) || {
+      name: entry.memberName,
+      miles: 0
+    };
+
+    if (!teamTotals.has(teamId)) {
+      teamTotals.set(teamId, 0);
+    }
+
+    teamTotals.set(teamId, teamTotals.get(teamId) + miles);
+
+    if (entry.memberName) {
+      memberTotals.set(memberKey, {
+        name: existingMember.name || entry.memberName,
+        miles: existingMember.miles + miles
+      });
+    }
+
+    if (teamId === "unassigned" && !teamById.has("unassigned")) {
+      teamById.set("unassigned", {
+        id: "unassigned",
+        name: "Unassigned",
         members: []
       });
     }
@@ -250,6 +313,20 @@ function findTeamByMemberName(state, participantName) {
       team.members.some((member) => nameKey(member.fullName) === normalized)
     ) || null
   );
+}
+
+function findMemberById(team, memberId) {
+  return team.members.find((member) => member.id === memberId) || null;
+}
+
+function validateMiles(value, label) {
+  const cleanValue = String(value ?? "").trim();
+
+  if (!/^\d+(\.\d{1,2})?$/.test(cleanValue)) {
+    throw validationError(`Please enter ${label} with no more than two decimal places.`);
+  }
+
+  return Number(cleanValue);
 }
 
 function validationError(message, status = 400) {
@@ -410,6 +487,68 @@ async function handleApi(request, response, url) {
         duration,
         activityDate,
         teamId: team?.id || null,
+        createdAt: new Date().toISOString()
+      });
+    });
+
+    sendJson(response, getPublicState(state), 201);
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/distance") {
+    const body = await readJsonBody(request);
+    const teamId = cleanString(body.teamId);
+    const memberId = cleanString(body.memberId);
+    const entryMode = cleanString(body.entryMode) === "weekly" ? "weekly" : "daily";
+    const weekNumber = Number(body.weekNumber);
+
+    if (!teamId || !memberId || !Number.isInteger(weekNumber) || weekNumber < 1) {
+      throw validationError("Team, team member, entry type, and challenge week are required.");
+    }
+
+    const { state } = await updateState((draft) => {
+      const team = draft.teams.find((entry) => entry.id === teamId);
+
+      if (!team) {
+        throw validationError("Team was not found.", 404);
+      }
+
+      const member = findMemberById(team, memberId);
+
+      if (!member) {
+        throw validationError("Team member was not found.", 404);
+      }
+
+      const dailyMiles = entryMode === "daily" && Array.isArray(body.dailyMiles)
+        ? body.dailyMiles.map((day) => ({
+            dayIndex: Number(day.dayIndex) || 0,
+            dayName: cleanString(day.dayName),
+            dateLabel: cleanString(day.dateLabel),
+            miles: roundMiles(validateMiles(day.miles, `${cleanString(day.dayName) || "daily"} miles`))
+          }))
+        : [];
+      const weeklyMiles = entryMode === "weekly"
+        ? roundMiles(validateMiles(body.weeklyMiles, "weekly miles"))
+        : 0;
+      const totalMiles = entryMode === "daily"
+        ? roundMiles(dailyMiles.reduce((total, day) => total + day.miles, 0))
+        : weeklyMiles;
+
+      if (totalMiles <= 0) {
+        throw validationError("Distance must be greater than zero.");
+      }
+
+      draft.distanceEntries.push({
+        id: crypto.randomUUID(),
+        teamId,
+        teamName: team.name,
+        memberId,
+        memberName: member.fullName,
+        entryMode,
+        weekNumber,
+        dailyMiles,
+        weeklyMiles,
+        totalMiles,
         createdAt: new Date().toISOString()
       });
     });
