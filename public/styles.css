@@ -183,6 +183,17 @@ p {
   font-weight: 900;
 }
 
+.kickoff-note {
+  margin-top: 8px;
+  color: var(--pink);
+  font-weight: 900;
+}
+
+.hero-kickoff {
+  margin: 8px 0;
+  font-size: 1.15rem;
+}
+
 .hero-actions {
   display: flex;
   flex-wrap: wrap;

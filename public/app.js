@@ -12,6 +12,7 @@ const app = document.querySelector("#app");
 const toast = document.querySelector("#toast");
 const TEAM_MEMBER_LIMIT = 10;
 const TEAM_FULL_MESSAGE = "This team already has 10 people, so it is full. Please join a new team.";
+const KICKOFF_MESSAGE = "Kickoff on July 6!";
 const weekColors = [
   "#9ec9e8",
   "#7fb3dc",
@@ -128,6 +129,7 @@ function renderRegisterPage() {
           <p class="eyebrow">Bright Harbor Healthcare</p>
           <h1>Walk to Wellness '26</h1>
           <p class="hero-tagline">Step Into Better Health, One Walk at a Time.</p>
+          <p class="kickoff-note hero-kickoff">${KICKOFF_MESSAGE}</p>
           <p>Build movement into the workday through short walks, outdoor breaks, and shared progress with your colleagues.</p>
           <div class="hero-actions">
             <a class="primary-button" href="#create-team">Register A Team</a>
@@ -224,6 +226,7 @@ function renderCreateTeamPage() {
           <div>
             <h1>Create a Team</h1>
             <p>Existing team names and members appear first.</p>
+            <p class="kickoff-note">${KICKOFF_MESSAGE}</p>
           </div>
         </div>
 
@@ -385,6 +388,7 @@ function renderJoinTeamPage() {
           <div>
             <h1>Join a Team</h1>
             <p>${state.teams.length ? "Choose a team and add your name." : "No teams are open yet."}</p>
+            <p class="kickoff-note">${KICKOFF_MESSAGE}</p>
           </div>
           <a class="secondary-button" href="#create-team">Create a Team</a>
         </div>
