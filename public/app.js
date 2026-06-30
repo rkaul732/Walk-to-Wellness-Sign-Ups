@@ -74,7 +74,17 @@ async function refreshAdminSession() {
 
 function getRoute() {
   const hash = window.location.hash.replace("#", "");
-  return routes[hash] ? hash : "register";
+  const pathRoute = window.location.pathname.replace(/^\/|\/$/g, "");
+
+  if (routes[hash]) {
+    return hash;
+  }
+
+  if (routes[pathRoute]) {
+    return pathRoute;
+  }
+
+  return "register";
 }
 
 function renderLoading() {

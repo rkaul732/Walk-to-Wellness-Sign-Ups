@@ -65,10 +65,10 @@ In your Netlify site:
 
 ## 5. Use the admin page
 
-After the deploy finishes, open your site and add `#admin` to the end of the URL:
+After the deploy finishes, open the Admin page:
 
 ```text
-https://your-netlify-site.netlify.app/#admin
+https://your-netlify-site.netlify.app/admin
 ```
 
 Log in with the `ADMIN_USERNAME` and `ADMIN_PASSWORD` you added in Netlify. From there you can rename teams, add or remove team members, and delete teams created by mistake.
@@ -82,6 +82,6 @@ After the new deploy finishes:
 3. Join that team with a test name.
 4. Submit miles on the Step Submission page.
 5. Confirm the Live Feed charts update.
-6. Open `#admin`, log in, and confirm you can manage the test team.
+6. Open `/admin`, log in, and confirm you can manage the test team.
 
 If anything fails, check **Netlify** > **Functions** > `api` logs first. Most setup issues are either missing environment variables or the Supabase SQL schema not being run yet.
