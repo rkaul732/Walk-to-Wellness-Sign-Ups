@@ -22,6 +22,36 @@ create unique index if not exists team_members_team_name_lower_unique
 create index if not exists team_members_team_id_idx
   on public.team_members (team_id);
 
+create or replace function public.enforce_team_member_limit()
+returns trigger
+language plpgsql
+as $$
+begin
+  perform 1
+  from public.teams
+  where id = new.team_id
+  for update;
+
+  if (
+    select count(*)
+    from public.team_members
+    where team_id = new.team_id
+      and id <> new.id
+  ) >= 10 then
+    raise exception 'This team already has 10 people, so it is full. Please join a new team.';
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists enforce_team_member_limit_before_write on public.team_members;
+
+create trigger enforce_team_member_limit_before_write
+before insert or update of team_id on public.team_members
+for each row
+execute function public.enforce_team_member_limit();
+
 create table if not exists public.registrations (
   id uuid primary key default gen_random_uuid(),
   first_name text not null check (length(trim(first_name)) > 0),

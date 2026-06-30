@@ -501,6 +501,26 @@ select:disabled {
   gap: 10px;
 }
 
+.team-card-full {
+  border-color: rgba(227, 160, 205, 0.55);
+}
+
+.team-full-button {
+  width: 100%;
+  min-height: 46px;
+  margin-top: 14px;
+  color: var(--ink);
+  background: var(--surface-soft);
+  border: 2px solid var(--pink);
+  border-radius: 8px;
+  font-weight: 900;
+}
+
+.team-full-button:disabled {
+  opacity: 1;
+  cursor: default;
+}
+
 .muted {
   color: var(--muted);
 }
@@ -776,6 +796,12 @@ select:disabled {
   transform: translateY(10px);
   pointer-events: none;
   transition: opacity 160ms ease, transform 160ms ease;
+}
+
+.toast.error {
+  color: var(--ink);
+  background: var(--button);
+  border: 2px solid var(--ink);
 }
 
 .toast.show {

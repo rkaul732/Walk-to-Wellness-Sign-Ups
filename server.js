@@ -13,6 +13,8 @@ const HOST = process.env.HOST || "127.0.0.1";
 const PUBLIC_DIR = path.join(__dirname, "public");
 const DATA_PATH =
   process.env.DATA_PATH || path.join(__dirname, "data", "walk-to-wellness.json");
+const TEAM_MEMBER_LIMIT = 10;
+const TEAM_FULL_MESSAGE = "This team already has 10 people, so it is full. Please join a new team.";
 
 const initialState = {
   teams: [],
@@ -294,15 +296,21 @@ function addMemberToTeam(team, fullName) {
 
   const exists = team.members.some((member) => nameKey(member.fullName) === nameKey(memberName));
 
-  if (!exists) {
-    team.members.push({
-      id: crypto.randomUUID(),
-      fullName: memberName,
-      joinedAt: new Date().toISOString()
-    });
+  if (exists) {
+    return false;
   }
 
-  return !exists;
+  if (team.members.length >= TEAM_MEMBER_LIMIT) {
+    throw validationError(TEAM_FULL_MESSAGE);
+  }
+
+  team.members.push({
+    id: crypto.randomUUID(),
+    fullName: memberName,
+    joinedAt: new Date().toISOString()
+  });
+
+  return true;
 }
 
 function findTeamByMemberName(state, participantName) {
@@ -405,9 +413,14 @@ async function handleApi(request, response, url) {
     const body = await readJsonBody(request);
     const name = cleanString(body.name);
     const memberNames = splitMemberNames(body.memberNames);
+    const uniqueMemberNames = [...new Map(memberNames.map((member) => [nameKey(member), member])).values()];
 
     if (!name) {
       throw validationError("Team name is required.");
+    }
+
+    if (uniqueMemberNames.length > TEAM_MEMBER_LIMIT) {
+      throw validationError(`Teams can have a maximum of ${TEAM_MEMBER_LIMIT} people. Please move additional members to a new team.`);
     }
 
     const { state } = await updateState((draft) => {
@@ -424,7 +437,7 @@ async function handleApi(request, response, url) {
         members: []
       };
 
-      for (const memberName of memberNames) {
+      for (const memberName of uniqueMemberNames) {
         addMemberToTeam(team, memberName);
       }
 

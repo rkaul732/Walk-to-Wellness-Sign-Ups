@@ -9,6 +9,8 @@ const routes = {
 
 const app = document.querySelector("#app");
 const toast = document.querySelector("#toast");
+const TEAM_MEMBER_LIMIT = 10;
+const TEAM_FULL_MESSAGE = "This team already has 10 people, so it is full. Please join a new team.";
 const weekColors = [
   "#9ec9e8",
   "#7fb3dc",
@@ -525,20 +527,26 @@ function renderClickableTeamList() {
 }
 
 function renderJoinTeamCard(team) {
+  const isFull = team.members.length >= TEAM_MEMBER_LIMIT;
+
   return `
-    <article class="team-card">
+    <article class="team-card ${isFull ? "team-card-full" : ""}">
       <h3>
         <span>${escapeHtml(team.name)}</span>
-        <span class="team-count">${team.members.length} ${pluralize("member", team.members.length)}</span>
+        <span class="team-count">${team.members.length}/${TEAM_MEMBER_LIMIT} ${pluralize("member", team.members.length)}</span>
       </h3>
       ${renderMembers(team.members)}
-      <form data-action="join-team" data-team-id="${escapeAttribute(team.id)}">
-        <label>
-          Name
-          <input name="fullName" autocomplete="name" required>
-        </label>
-        <button class="primary-button" type="submit">Join This Team</button>
-      </form>
+      ${
+        isFull
+          ? `<button class="team-full-button" type="button" disabled>TEAM FULL</button>`
+          : `<form data-action="join-team" data-team-id="${escapeAttribute(team.id)}">
+              <label>
+                Name
+                <input name="fullName" autocomplete="name" required>
+              </label>
+              <button class="primary-button" type="submit">Join This Team</button>
+            </form>`
+      }
     </article>
   `;
 }
@@ -677,11 +685,25 @@ async function handleSubmit(event) {
     }
 
     if (action === "create-team") {
+      const memberNames = splitEntryNames(formData.memberNames);
+
+      if (memberNames.length > TEAM_MEMBER_LIMIT) {
+        showToast(`Teams can have a maximum of ${TEAM_MEMBER_LIMIT} people. Please move additional members to a new team.`, "error");
+        return;
+      }
+
       await postJson("/api/teams", formData);
       showToast("Team created.");
     }
 
     if (action === "join-team") {
+      const team = state.teams.find((entry) => entry.id === form.dataset.teamId);
+
+      if (team && team.members.length >= TEAM_MEMBER_LIMIT) {
+        showToast(TEAM_FULL_MESSAGE, "error");
+        return;
+      }
+
       await postJson(`/api/teams/${encodeURIComponent(form.dataset.teamId)}/members`, formData);
       showToast("Team member added.");
     }
@@ -700,7 +722,7 @@ async function handleSubmit(event) {
     form.reset();
     render();
   } catch (error) {
-    showToast(error.message || "Something went wrong.");
+    showToast(error.message || "Something went wrong.", "error");
   }
 }
 
@@ -984,6 +1006,28 @@ function assertMiles(value, label) {
   if (!/^\d+(\.\d{1,2})?$/.test(cleanValue)) {
     throw new Error(`Please enter ${label} with no more than two decimal places.`);
   }
+}
+
+function splitEntryNames(value) {
+  return [...new Set(
+    String(value ?? "")
+      .split(/\n|,/)
+      .map(cleanString)
+      .filter(Boolean)
+      .map((name) => name.toLocaleLowerCase())
+  )];
+}
+
+function showToast(message, type = "success") {
+  if (!toast) return;
+
+  window.clearTimeout(toastTimer);
+  toast.textContent = message;
+  toast.classList.toggle("error", type === "error");
+  toast.classList.add("show");
+  toastTimer = window.setTimeout(() => {
+    toast.classList.remove("show", "error");
+  }, 4800);
 }
 
 function pluralize(word, count) {

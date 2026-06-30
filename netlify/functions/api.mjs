@@ -2,6 +2,8 @@ const jsonHeaders = {
   "content-type": "application/json; charset=utf-8",
   "cache-control": "no-store"
 };
+const TEAM_MEMBER_LIMIT = 10;
+const TEAM_FULL_MESSAGE = "This team already has 10 people, so it is full. Please join a new team.";
 
 export async function handler(event) {
   try {
@@ -50,13 +52,17 @@ export async function handler(event) {
         throw validationError("That team name already exists.");
       }
 
+      const uniqueMembers = [...new Map(memberNames.map((member) => [nameKey(member), member])).values()];
+
+      if (uniqueMembers.length > TEAM_MEMBER_LIMIT) {
+        throw validationError(`Teams can have a maximum of ${TEAM_MEMBER_LIMIT} people. Please move additional members to a new team.`);
+      }
+
       const [team] = await supabaseFetch("teams", {
         method: "POST",
         body: JSON.stringify({ name }),
         returnRepresentation: true
       });
-
-      const uniqueMembers = [...new Map(memberNames.map((member) => [nameKey(member), member])).values()];
 
       if (uniqueMembers.length) {
         await supabaseFetch("team_members", {
@@ -91,6 +97,10 @@ export async function handler(event) {
       }
 
       const exists = team.members.some((member) => nameKey(member.fullName) === nameKey(fullName));
+
+      if (!exists && team.members.length >= TEAM_MEMBER_LIMIT) {
+        throw validationError(TEAM_FULL_MESSAGE);
+      }
 
       if (!exists) {
         await supabaseFetch("team_members", {
