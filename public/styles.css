@@ -241,6 +241,10 @@ p {
   align-items: start;
 }
 
+.landing-team-grid {
+  grid-template-columns: 1fr;
+}
+
 .single-column {
   max-width: 980px;
 }

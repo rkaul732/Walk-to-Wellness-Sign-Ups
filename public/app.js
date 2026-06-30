@@ -152,7 +152,7 @@ function renderRegisterPage() {
       </section>
 
       <section class="content-band signup-section">
-        <div class="content-grid">
+        <div class="content-grid landing-team-grid">
           <section class="panel" aria-labelledby="team-list-title">
             <div class="section-header">
               <div>
@@ -177,38 +177,6 @@ function renderRegisterPage() {
                   </div>`
                 : ""
             }
-          </section>
-
-          <section class="form-panel" aria-labelledby="registration-title">
-            <div class="section-header">
-              <div>
-                <h2 id="registration-title">Registration</h2>
-                <p>Tell us who is stepping into the challenge.</p>
-              </div>
-            </div>
-            <form class="form-grid" data-action="register">
-              <div class="form-grid two-column">
-                <label>
-                  First Name
-                  <input name="firstName" autocomplete="given-name" required>
-                </label>
-                <label>
-                  Last Name
-                  <input name="lastName" autocomplete="family-name" required>
-                </label>
-              </div>
-              <label>
-                Program Name
-                <input name="programName" required>
-              </label>
-              <label>
-                Office Building Site
-                <input name="officeSite" required>
-              </label>
-              <div class="button-row">
-                <button class="primary-button" type="submit">Submit Registration</button>
-              </div>
-            </form>
           </section>
         </div>
       </section>
