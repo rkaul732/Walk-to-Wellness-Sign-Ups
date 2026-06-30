@@ -1079,7 +1079,7 @@ async function postJson(url, body) {
 
 function getChallengeWeeks() {
   const year = new Date().getFullYear();
-  const start = new Date(year, 5, 6);
+  const start = new Date(year, 6, 6);
   const end = new Date(year, 9, 18);
   const weeks = [];
   const dayNames = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
