@@ -889,10 +889,12 @@ async function submitDistance(form, formData) {
         return {
           dayIndex: day.dayIndex,
           dayName: day.dayName,
+          isoDate: day.isoDate,
           dateLabel: day.dateLabel,
           miles: Number(value)
         };
-      });
+      })
+      .filter((day) => day.miles > 0);
 
     body.dailyMiles = dailyMiles;
   } else {
@@ -900,7 +902,53 @@ async function submitDistance(form, formData) {
     body.weeklyMiles = Number(formData.weeklyMiles);
   }
 
-  await postJson("/api/distance", body);
+  try {
+    await postJson("/api/distance", body);
+  } catch (error) {
+    if (error.status !== 409 || !error.payload?.duplicate) {
+      throw error;
+    }
+
+    const duplicateAction = await showDuplicateDistanceModal(error.payload.duplicate);
+    await postJson("/api/distance", {
+      ...body,
+      duplicateAction
+    });
+  }
+}
+
+function showDuplicateDistanceModal(duplicate) {
+  return new Promise((resolve) => {
+    const existingModal = document.querySelector(".modal-backdrop");
+    existingModal?.remove();
+
+    const backdrop = document.createElement("div");
+    backdrop.className = "modal-backdrop";
+    backdrop.innerHTML = `
+      <section class="choice-modal" role="dialog" aria-modal="true" aria-labelledby="duplicate-distance-title">
+        <h2 id="duplicate-distance-title">Duplicate Distance Entry</h2>
+        <p>${escapeHtml(duplicate.message || "You have previously entered miles for this person on this date. Do you want to override or add the totals?")}</p>
+        <div class="modal-actions">
+          <button class="secondary-button" type="button" data-duplicate-action="override">Override</button>
+          <button class="primary-button" type="button" data-duplicate-action="add">Add Totals</button>
+        </div>
+      </section>
+    `;
+
+    const finish = (action) => {
+      backdrop.remove();
+      resolve(action);
+    };
+
+    backdrop.addEventListener("click", (event) => {
+      const button = event.target.closest("[data-duplicate-action]");
+      if (!button) return;
+      finish(button.dataset.duplicateAction);
+    });
+
+    document.body.append(backdrop);
+    backdrop.querySelector("[data-duplicate-action]")?.focus();
+  });
 }
 
 function handleClick(event) {
@@ -1008,7 +1056,10 @@ async function requestJson(url, options = {}) {
   const payload = await response.json();
 
   if (!response.ok) {
-    throw new Error(payload.error || "Please check the form and try again.");
+    const error = new Error(payload.error || "Please check the form and try again.");
+    error.status = response.status;
+    error.payload = payload;
+    throw error;
   }
 
   if (payload?.teams) {
@@ -1103,26 +1154,6 @@ function getTeamWeeklyRows() {
     });
   }
 
-  for (const activity of state.activities || []) {
-    const teamId = activity.teamId || "unassigned";
-    const weekNumber = getWeekNumberForDate(activity.activityDate);
-    const miles = Number(activity.miles) || 0;
-
-    if (!weekNumber || miles <= 0) continue;
-
-    if (!rows.has(teamId)) {
-      rows.set(teamId, {
-        teamId,
-        teamName: "Unassigned",
-        memberCount: 0,
-        weekTotals: {},
-        totalMiles: 0
-      });
-    }
-
-    addWeeklyMiles(rows.get(teamId), weekNumber, miles);
-  }
-
   for (const entry of state.distanceEntries || []) {
     const teamId = entry.teamId || "unassigned";
     const weekNumber = Number(entry.weekNumber);
@@ -1154,10 +1185,6 @@ function addWeeklyMiles(row, weekNumber, miles) {
 function getTopMembers() {
   const members = new Map();
 
-  for (const activity of state.activities || []) {
-    addMemberMiles(members, activity.participantName, Number(activity.miles) || 0);
-  }
-
   for (const entry of state.distanceEntries || []) {
     addMemberMiles(members, entry.memberName, Number(entry.totalMiles) || 0);
   }
@@ -1184,7 +1211,6 @@ function addMemberMiles(map, name, miles) {
 
 function getLatestUpdateLabel() {
   const dates = [
-    ...(state.activities || []).map((activity) => activity.createdAt),
     ...(state.distanceEntries || []).map((entry) => entry.createdAt)
   ].filter(Boolean);
 

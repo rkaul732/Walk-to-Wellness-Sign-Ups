@@ -138,6 +138,7 @@ function normalizeDistanceEntry(entry) {
     ? entry.dailyMiles.map((day) => ({
         dayIndex: Number(day.dayIndex) || 0,
         dayName: cleanString(day.dayName),
+        isoDate: cleanString(day.isoDate),
         dateLabel: cleanString(day.dateLabel),
         miles: roundMiles(day.miles)
       }))
@@ -185,35 +186,6 @@ function buildTotals(state) {
   const teamById = new Map(state.teams.map((team) => [team.id, team]));
   const teamTotals = new Map(state.teams.map((team) => [team.id, 0]));
   const memberTotals = new Map();
-
-  for (const activity of state.activities) {
-    const miles = Number(activity.miles) || 0;
-    const teamId = teamById.has(activity.teamId) ? activity.teamId : "unassigned";
-    const teamName = teamId === "unassigned" ? "Unassigned" : teamById.get(teamId).name;
-    const memberKey = nameKey(activity.participantName);
-    const existingMember = memberTotals.get(memberKey) || {
-      name: activity.participantName,
-      miles: 0
-    };
-
-    if (!teamTotals.has(teamId)) {
-      teamTotals.set(teamId, 0);
-    }
-
-    teamTotals.set(teamId, teamTotals.get(teamId) + miles);
-    memberTotals.set(memberKey, {
-      name: existingMember.name || activity.participantName,
-      miles: existingMember.miles + miles
-    });
-
-    if (teamId === "unassigned" && !teamById.has("unassigned")) {
-      teamById.set("unassigned", {
-        id: "unassigned",
-        name: teamName,
-        members: []
-      });
-    }
-  }
 
   for (const entry of state.distanceEntries || []) {
     const miles = Number(entry.totalMiles) || 0;
@@ -529,6 +501,196 @@ function validateMiles(value, label) {
   return Number(cleanValue);
 }
 
+function getDuplicateAction(value) {
+  const action = cleanString(value).toLocaleLowerCase();
+  return action === "override" || action === "add" ? action : "";
+}
+
+function duplicateDistanceError(duplicate) {
+  const error = validationError(duplicate.message, 409);
+  error.payload = { duplicate };
+  return error;
+}
+
+function findDistanceDuplicate(entries, memberId, entryMode, weekNumber, dailyMiles) {
+  const memberEntries = (entries || []).filter(
+    (entry) => entry.memberId === memberId && Number(entry.weekNumber) === weekNumber
+  );
+
+  if (entryMode === "weekly") {
+    const existingMiles = roundMiles(
+      memberEntries.reduce((total, entry) => total + (Number(entry.totalMiles) || 0), 0)
+    );
+
+    return existingMiles > 0
+      ? buildDuplicatePayload(existingMiles, getWeekLabel(weekNumber), "week")
+      : null;
+  }
+
+  for (const day of dailyMiles) {
+    const dayKey = getDistanceDayKey(weekNumber, day);
+    let existingMiles = 0;
+    let hasWeeklyOverlap = false;
+
+    for (const entry of memberEntries) {
+      if (entry.entryMode === "weekly") {
+        existingMiles += Number(entry.totalMiles) || 0;
+        hasWeeklyOverlap = true;
+        continue;
+      }
+
+      for (const existingDay of entry.dailyMiles || []) {
+        if (getDistanceDayKey(entry.weekNumber, existingDay) === dayKey) {
+          existingMiles += Number(existingDay.miles) || 0;
+        }
+      }
+    }
+
+    if (existingMiles > 0) {
+      return buildDuplicatePayload(
+        roundMiles(existingMiles),
+        hasWeeklyOverlap ? getWeekLabel(weekNumber) : getDistanceDayLabel(weekNumber, day),
+        hasWeeklyOverlap ? "week" : "date"
+      );
+    }
+  }
+
+  return null;
+}
+
+function buildDuplicatePayload(existingMiles, periodLabel, periodType) {
+  const periodPhrase = periodType === "week" ? `for ${periodLabel}` : `on ${periodLabel}`;
+  const message = `You have previously entered ${formatMilesForMessage(existingMiles)} for this person ${periodPhrase}. Do you want to override or add the totals?`;
+
+  return {
+    existingMiles,
+    periodLabel,
+    periodType,
+    message
+  };
+}
+
+function applyDistanceOverride(state, memberId, entryMode, weekNumber, dailyMiles) {
+  if (entryMode === "weekly") {
+    state.distanceEntries = state.distanceEntries.filter(
+      (entry) => !(entry.memberId === memberId && Number(entry.weekNumber) === weekNumber)
+    );
+    return;
+  }
+
+  const dayKeys = new Set(dailyMiles.map((day) => getDistanceDayKey(weekNumber, day)));
+
+  state.distanceEntries = state.distanceEntries.flatMap((entry) => {
+    if (entry.memberId !== memberId || Number(entry.weekNumber) !== weekNumber) {
+      return [entry];
+    }
+
+    if (entry.entryMode === "weekly") {
+      return [];
+    }
+
+    const remainingDailyMiles = (entry.dailyMiles || []).filter(
+      (day) => !dayKeys.has(getDistanceDayKey(entry.weekNumber, day))
+    );
+    const totalMiles = roundMiles(
+      remainingDailyMiles.reduce((total, day) => total + (Number(day.miles) || 0), 0)
+    );
+
+    return totalMiles > 0
+      ? [{
+          ...entry,
+          dailyMiles: remainingDailyMiles,
+          totalMiles
+        }]
+      : [];
+  });
+}
+
+function getDistanceDayKey(weekNumber, day) {
+  return cleanString(day.isoDate) || `${Number(weekNumber) || 0}:${Number(day.dayIndex) || 0}`;
+}
+
+function getDistanceDayLabel(weekNumber, day) {
+  return cleanString(day.dateLabel) || getChallengeDay(weekNumber, day.dayIndex)?.dateLabel || `Week ${weekNumber}`;
+}
+
+function getWeekLabel(weekNumber) {
+  const week = getChallengeWeeks().find((entry) => entry.weekNumber === Number(weekNumber));
+  return week ? `Week ${week.weekNumber} (${week.rangeLabel})` : `Week ${weekNumber}`;
+}
+
+function getChallengeDay(weekNumber, dayIndex) {
+  return getChallengeWeeks()
+    .find((entry) => entry.weekNumber === Number(weekNumber))
+    ?.days.find((day) => day.dayIndex === Number(dayIndex)) || null;
+}
+
+function getChallengeWeeks() {
+  const year = new Date().getFullYear();
+  const start = new Date(year, 5, 6);
+  const end = new Date(year, 9, 18);
+  const weeks = [];
+  const dayNames = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+  let cursor = new Date(start);
+  let weekNumber = 1;
+
+  while (cursor <= end) {
+    const weekStart = new Date(cursor);
+    const weekEnd = new Date(cursor);
+    weekEnd.setDate(weekEnd.getDate() + 6);
+    const cappedEnd = weekEnd > end ? end : weekEnd;
+    const days = [];
+
+    for (let index = 0; index < 7; index += 1) {
+      const dayDate = new Date(weekStart);
+      dayDate.setDate(dayDate.getDate() + index);
+
+      if (dayDate <= end) {
+        days.push({
+          dayIndex: index,
+          dayName: dayNames[index],
+          isoDate: toISODate(dayDate),
+          dateLabel: formatShortDate(dayDate)
+        });
+      }
+    }
+
+    weeks.push({
+      weekNumber,
+      startDate: toISODate(weekStart),
+      endDate: toISODate(cappedEnd),
+      rangeLabel: `${formatShortDate(weekStart)} - ${formatShortDate(cappedEnd)}`,
+      days
+    });
+
+    cursor.setDate(cursor.getDate() + 7);
+    weekNumber += 1;
+  }
+
+  return weeks;
+}
+
+function toISODate(date) {
+  return [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, "0"),
+    String(date.getDate()).padStart(2, "0")
+  ].join("-");
+}
+
+function formatShortDate(date) {
+  return date.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric"
+  });
+}
+
+function formatMilesForMessage(value) {
+  return Number(value || 0).toLocaleString(undefined, {
+    maximumFractionDigits: 2
+  });
+}
+
 function validationError(message, status = 400) {
   const error = new Error(message);
   error.status = status;
@@ -566,7 +728,7 @@ function sendError(response, error) {
   const status = Number(error.status) || 500;
   const message = status === 500 ? "Something went wrong." : error.message;
 
-  sendJson(response, { error: message }, status);
+  sendJson(response, { error: message, ...(error.payload || {}) }, status);
 }
 
 async function handleApi(request, response, url) {
@@ -823,6 +985,7 @@ async function handleApi(request, response, url) {
     const teamId = cleanString(body.teamId);
     const memberId = cleanString(body.memberId);
     const entryMode = cleanString(body.entryMode) === "weekly" ? "weekly" : "daily";
+    const duplicateAction = getDuplicateAction(body.duplicateAction);
     const weekNumber = Number(body.weekNumber);
 
     if (!teamId || !memberId || !Number.isInteger(weekNumber) || weekNumber < 1) {
@@ -846,9 +1009,10 @@ async function handleApi(request, response, url) {
         ? body.dailyMiles.map((day) => ({
             dayIndex: Number(day.dayIndex) || 0,
             dayName: cleanString(day.dayName),
-            dateLabel: cleanString(day.dateLabel),
+            isoDate: cleanString(day.isoDate) || getChallengeDay(weekNumber, day.dayIndex)?.isoDate || "",
+            dateLabel: cleanString(day.dateLabel) || getChallengeDay(weekNumber, day.dayIndex)?.dateLabel || "",
             miles: roundMiles(validateMiles(day.miles, `${cleanString(day.dayName) || "daily"} miles`))
-          }))
+          })).filter((day) => day.miles > 0)
         : [];
       const weeklyMiles = entryMode === "weekly"
         ? roundMiles(validateMiles(body.weeklyMiles, "weekly miles"))
@@ -859,6 +1023,22 @@ async function handleApi(request, response, url) {
 
       if (totalMiles <= 0) {
         throw validationError("Distance must be greater than zero.");
+      }
+
+      const duplicate = findDistanceDuplicate(
+        draft.distanceEntries,
+        memberId,
+        entryMode,
+        weekNumber,
+        dailyMiles
+      );
+
+      if (duplicate && !duplicateAction) {
+        throw duplicateDistanceError(duplicate);
+      }
+
+      if (duplicateAction === "override") {
+        applyDistanceOverride(draft, memberId, entryMode, weekNumber, dailyMiles);
       }
 
       draft.distanceEntries.push({
