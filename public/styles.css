@@ -126,7 +126,7 @@ button {
   padding: clamp(28px, 5vw, 60px);
   background:
     linear-gradient(90deg, rgba(255, 253, 248, 0.98) 0%, rgba(255, 253, 248, 0.86) 40%, rgba(255, 253, 248, 0.28) 72%, rgba(255, 253, 248, 0.02) 100%),
-    url("/assets/walk-wellness-beach-team.png?v=20260630-photo") right bottom / cover;
+    url("/assets/walk-wellness-beach-team.png?v=20260630-photo") right center / cover;
   border-bottom: 1px solid var(--line);
 }
 
@@ -953,7 +953,7 @@ select:disabled {
     min-height: 560px;
     background:
       linear-gradient(180deg, rgba(255, 253, 248, 0.98) 0%, rgba(255, 253, 248, 0.86) 68%, rgba(255, 253, 248, 0.1) 100%),
-      url("/assets/walk-wellness-beach-team.png?v=20260630-photo") center bottom / cover;
+      url("/assets/walk-wellness-beach-team.png?v=20260630-photo") center center / cover;
   }
 
   h1 {
