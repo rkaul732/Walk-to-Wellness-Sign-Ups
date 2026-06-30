@@ -1,9 +1,13 @@
+import crypto from "node:crypto";
+
 const jsonHeaders = {
   "content-type": "application/json; charset=utf-8",
   "cache-control": "no-store"
 };
 const TEAM_MEMBER_LIMIT = 10;
 const TEAM_FULL_MESSAGE = "This team already has 10 people, so it is full. Please join a new team.";
+const ADMIN_COOKIE_NAME = "ww_admin_session";
+const ADMIN_SESSION_MS = 8 * 60 * 60 * 1000;
 
 export async function handler(event) {
   try {
@@ -12,6 +16,182 @@ export async function handler(event) {
 
     if (method === "GET" && pathname === "/api/state") {
       return json(await loadPublicState());
+    }
+
+    if (method === "GET" && pathname === "/api/admin/session") {
+      const session = getAdminSession(event);
+      return json({
+        authenticated: Boolean(session),
+        configured: isAdminConfigured(),
+        username: session?.username || null
+      });
+    }
+
+    if (method === "POST" && pathname === "/api/admin/login") {
+      const body = readJson(event);
+      const config = assertAdminConfigured();
+      const username = cleanString(body.username) || "admin";
+      const password = cleanString(body.password);
+
+      if (!safeTextEqual(username, config.username) || !safeTextEqual(password, config.password)) {
+        throw validationError("Admin username or password is incorrect.", 401);
+      }
+
+      return json({
+        authenticated: true,
+        username: config.username
+      }, 200, {
+        "set-cookie": getAdminCookie(createAdminToken(config.username))
+      });
+    }
+
+    if (method === "POST" && pathname === "/api/admin/logout") {
+      return json({ authenticated: false }, 200, {
+        "set-cookie": getClearAdminCookie()
+      });
+    }
+
+    if (pathname.startsWith("/api/admin/")) {
+      requireAdmin(event);
+
+      const adminTeamMatch = pathname.match(/^\/api\/admin\/teams\/([^/]+)$/);
+      const adminMemberMatch = pathname.match(/^\/api\/admin\/teams\/([^/]+)\/members\/([^/]+)$/);
+      const adminTeamMemberCollectionMatch = pathname.match(/^\/api\/admin\/teams\/([^/]+)\/members$/);
+
+      if (adminTeamMatch && method === "PATCH") {
+        const teamId = decodeURIComponent(adminTeamMatch[1]);
+        const body = readJson(event);
+        const name = cleanString(body.name);
+        const currentState = await loadPublicState();
+
+        if (!currentState.teams.some((team) => team.id === teamId)) {
+          throw validationError("Team was not found.", 404);
+        }
+
+        if (!name) {
+          throw validationError("Team name is required.");
+        }
+
+        if (currentState.teams.some((team) => team.id !== teamId && nameKey(team.name) === nameKey(name))) {
+          throw validationError("That team name already exists.");
+        }
+
+        await supabaseFetch(`teams?id=${eqParam(teamId)}`, {
+          method: "PATCH",
+          body: JSON.stringify({ name })
+        });
+        await supabaseFetch(`distance_entries?team_id=${eqParam(teamId)}`, {
+          method: "PATCH",
+          body: JSON.stringify({ team_name: name })
+        });
+
+        return json(await loadPublicState());
+      }
+
+      if (adminTeamMatch && method === "DELETE") {
+        const teamId = decodeURIComponent(adminTeamMatch[1]);
+        const currentState = await loadPublicState();
+
+        if (!currentState.teams.some((team) => team.id === teamId)) {
+          throw validationError("Team was not found.", 404);
+        }
+
+        await supabaseFetch(`distance_entries?team_id=${eqParam(teamId)}`, { method: "DELETE" });
+        await supabaseFetch(`activities?team_id=${eqParam(teamId)}`, { method: "DELETE" });
+        await supabaseFetch(`teams?id=${eqParam(teamId)}`, { method: "DELETE" });
+
+        return json(await loadPublicState());
+      }
+
+      if (adminTeamMemberCollectionMatch && method === "POST") {
+        const teamId = decodeURIComponent(adminTeamMemberCollectionMatch[1]);
+        const body = readJson(event);
+        const fullName = cleanString(body.fullName);
+        const currentState = await loadPublicState();
+        const team = currentState.teams.find((entry) => entry.id === teamId);
+
+        if (!fullName) {
+          throw validationError("Team member name is required.");
+        }
+
+        if (!team) {
+          throw validationError("Team was not found.", 404);
+        }
+
+        const exists = team.members.some((member) => nameKey(member.fullName) === nameKey(fullName));
+
+        if (!exists && team.members.length >= TEAM_MEMBER_LIMIT) {
+          throw validationError(TEAM_FULL_MESSAGE);
+        }
+
+        if (!exists) {
+          await supabaseFetch("team_members", {
+            method: "POST",
+            body: JSON.stringify({
+              team_id: teamId,
+              full_name: fullName
+            })
+          });
+        }
+
+        return json(await loadPublicState(), 201);
+      }
+
+      if (adminMemberMatch && method === "PATCH") {
+        const teamId = decodeURIComponent(adminMemberMatch[1]);
+        const memberId = decodeURIComponent(adminMemberMatch[2]);
+        const body = readJson(event);
+        const fullName = cleanString(body.fullName);
+        const currentState = await loadPublicState();
+        const team = currentState.teams.find((entry) => entry.id === teamId);
+
+        if (!fullName) {
+          throw validationError("Team member name is required.");
+        }
+
+        if (!team) {
+          throw validationError("Team was not found.", 404);
+        }
+
+        if (!team.members.some((member) => member.id === memberId)) {
+          throw validationError("Team member was not found.", 404);
+        }
+
+        if (team.members.some((member) => member.id !== memberId && nameKey(member.fullName) === nameKey(fullName))) {
+          throw validationError("That member is already on this team.");
+        }
+
+        await supabaseFetch(`team_members?id=${eqParam(memberId)}`, {
+          method: "PATCH",
+          body: JSON.stringify({ full_name: fullName })
+        });
+        await supabaseFetch(`distance_entries?member_id=${eqParam(memberId)}`, {
+          method: "PATCH",
+          body: JSON.stringify({ member_name: fullName })
+        });
+
+        return json(await loadPublicState());
+      }
+
+      if (adminMemberMatch && method === "DELETE") {
+        const teamId = decodeURIComponent(adminMemberMatch[1]);
+        const memberId = decodeURIComponent(adminMemberMatch[2]);
+        const currentState = await loadPublicState();
+        const team = currentState.teams.find((entry) => entry.id === teamId);
+
+        if (!team) {
+          throw validationError("Team was not found.", 404);
+        }
+
+        if (!team.members.some((member) => member.id === memberId)) {
+          throw validationError("Team member was not found.", 404);
+        }
+
+        await supabaseFetch(`distance_entries?member_id=${eqParam(memberId)}`, { method: "DELETE" });
+        await supabaseFetch(`team_members?id=${eqParam(memberId)}`, { method: "DELETE" });
+
+        return json(await loadPublicState());
+      }
     }
 
     if (method === "POST" && pathname === "/api/registrations") {
@@ -484,16 +664,147 @@ function roundMiles(value) {
   return Math.round((Number(value) || 0) * 100) / 100;
 }
 
+function getAdminConfig() {
+  return {
+    username: cleanString(process.env.ADMIN_USERNAME) || "admin",
+    password: cleanString(process.env.ADMIN_PASSWORD),
+    secret: cleanString(process.env.ADMIN_SESSION_SECRET) || cleanString(process.env.ADMIN_PASSWORD)
+  };
+}
+
+function isAdminConfigured() {
+  const config = getAdminConfig();
+  return Boolean(config.password && config.secret);
+}
+
+function assertAdminConfigured() {
+  const config = getAdminConfig();
+
+  if (!config.password || !config.secret) {
+    throw validationError("Admin login is not configured. Add ADMIN_PASSWORD in Netlify environment variables.", 500);
+  }
+
+  return config;
+}
+
+function safeTextEqual(left, right) {
+  const leftBuffer = Buffer.from(String(left));
+  const rightBuffer = Buffer.from(String(right));
+
+  return leftBuffer.length === rightBuffer.length && crypto.timingSafeEqual(leftBuffer, rightBuffer);
+}
+
+function encodeBase64Url(value) {
+  return Buffer.from(value).toString("base64url");
+}
+
+function decodeBase64Url(value) {
+  return Buffer.from(value, "base64url").toString("utf8");
+}
+
+function signAdminPayload(payload, secret) {
+  return crypto.createHmac("sha256", secret).update(payload).digest("base64url");
+}
+
+function createAdminToken(username) {
+  const config = assertAdminConfigured();
+  const payload = encodeBase64Url(JSON.stringify({
+    username,
+    expiresAt: Date.now() + ADMIN_SESSION_MS
+  }));
+  const signature = signAdminPayload(payload, config.secret);
+
+  return `${payload}.${signature}`;
+}
+
+function verifyAdminToken(token) {
+  const config = assertAdminConfigured();
+  const [payload, signature] = String(token || "").split(".");
+
+  if (!payload || !signature) {
+    return null;
+  }
+
+  const expected = signAdminPayload(payload, config.secret);
+
+  if (!safeTextEqual(signature, expected)) {
+    return null;
+  }
+
+  try {
+    const session = JSON.parse(decodeBase64Url(payload));
+
+    if (!session.username || Number(session.expiresAt) < Date.now()) {
+      return null;
+    }
+
+    return session;
+  } catch {
+    return null;
+  }
+}
+
+function getHeader(event, name) {
+  const lowerName = name.toLocaleLowerCase();
+  const headers = event.headers || {};
+
+  return headers[lowerName] || headers[name] || "";
+}
+
+function parseCookies(header) {
+  return Object.fromEntries(
+    String(header || "")
+      .split(";")
+      .map((cookie) => cookie.trim().split("="))
+      .filter(([name, value]) => name && value)
+      .map(([name, value]) => [name, decodeURIComponent(value)])
+  );
+}
+
+function getAdminSession(event) {
+  if (!isAdminConfigured()) {
+    return null;
+  }
+
+  const cookies = parseCookies(getHeader(event, "cookie"));
+  return verifyAdminToken(cookies[ADMIN_COOKIE_NAME]);
+}
+
+function requireAdmin(event) {
+  const session = getAdminSession(event);
+
+  if (!session) {
+    throw validationError("Admin login required.", 401);
+  }
+
+  return session;
+}
+
+function getAdminCookie(token) {
+  return `${ADMIN_COOKIE_NAME}=${encodeURIComponent(token)}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${Math.floor(ADMIN_SESSION_MS / 1000)}`;
+}
+
+function getClearAdminCookie() {
+  return `${ADMIN_COOKIE_NAME}=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0`;
+}
+
+function eqParam(value) {
+  return `eq.${encodeURIComponent(value)}`;
+}
+
 function validationError(message, status = 400) {
   const error = new Error(message);
   error.status = status;
   return error;
 }
 
-function json(payload, status = 200) {
+function json(payload, status = 200, headers = {}) {
   return {
     statusCode: status,
-    headers: jsonHeaders,
+    headers: {
+      ...jsonHeaders,
+      ...headers
+    },
     body: JSON.stringify(payload)
   };
 }

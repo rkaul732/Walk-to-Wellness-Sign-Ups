@@ -4,7 +4,8 @@ const routes = {
   "enter-distance": "Enter Distance",
   "join-team": "Join a Team",
   "step-submission": "Step Submission",
-  "live-feed": "Live Feed"
+  "live-feed": "Live Feed",
+  admin: "Admin"
 };
 
 const app = document.querySelector("#app");
@@ -40,6 +41,7 @@ let selectedDistanceTeamId = "";
 let selectedDistanceMemberId = "";
 let selectedDistanceMode = "daily";
 let selectedDistanceWeek = getDefaultChallengeWeek();
+let adminSession = { authenticated: false, configured: true, username: null };
 let toastTimer = null;
 
 document.addEventListener("DOMContentLoaded", init);
@@ -51,6 +53,7 @@ document.addEventListener("change", handleChange);
 async function init() {
   renderLoading();
   await refreshState();
+  await refreshAdminSession();
   render();
 }
 
@@ -58,6 +61,15 @@ async function refreshState() {
   const response = await fetch("/api/state", { cache: "no-store" });
   state = await response.json();
   state.distanceEntries = state.distanceEntries || [];
+}
+
+async function refreshAdminSession() {
+  try {
+    const response = await fetch("/api/admin/session", { cache: "no-store" });
+    adminSession = await response.json();
+  } catch {
+    adminSession = { authenticated: false, configured: false, username: null };
+  }
 }
 
 function getRoute() {
@@ -84,6 +96,7 @@ function render() {
   if (route === "join-team") renderJoinTeamPage();
   if (route === "step-submission") renderStepSubmissionPage();
   if (route === "live-feed") renderLiveFeedPage();
+  if (route === "admin") renderAdminPage();
 }
 
 function updateActiveNav(route) {
@@ -488,6 +501,130 @@ function renderLiveFeedPage() {
   `;
 }
 
+function renderAdminPage() {
+  app.innerHTML = `
+    <section class="page content-band admin-page">
+      <div class="single-column">
+        <div class="section-header">
+          <div>
+            <h1>Admin</h1>
+            <p>Manage teams and team members.</p>
+          </div>
+          ${
+            adminSession.authenticated
+              ? `<button class="secondary-button" type="button" data-admin-logout>Log Out</button>`
+              : ""
+          }
+        </div>
+        ${
+          adminSession.authenticated
+            ? renderAdminDashboard()
+            : renderAdminLogin()
+        }
+      </div>
+    </section>
+  `;
+}
+
+function renderAdminLogin() {
+  return `
+    <section class="form-panel admin-login-panel" aria-labelledby="admin-login-title">
+      <h2 id="admin-login-title">Admin Login</h2>
+      ${
+        adminSession.configured === false
+          ? `<p class="error-note">Admin login is not configured yet. Add ADMIN_PASSWORD in Netlify environment variables, then redeploy.</p>`
+          : ""
+      }
+      <form class="form-grid" data-action="admin-login">
+        <label>
+          Username
+          <input name="username" autocomplete="username" value="admin" required ${adminSession.configured === false ? "disabled" : ""}>
+        </label>
+        <label>
+          Password
+          <input name="password" type="password" autocomplete="current-password" required ${adminSession.configured === false ? "disabled" : ""}>
+        </label>
+        <div class="button-row">
+          <button class="primary-button" type="submit" ${adminSession.configured === false ? "disabled" : ""}>Log In</button>
+        </div>
+      </form>
+    </section>
+  `;
+}
+
+function renderAdminDashboard() {
+  return `
+    <section class="panel admin-dashboard" aria-labelledby="admin-dashboard-title">
+      <div class="section-header compact-header">
+        <div>
+          <h2 id="admin-dashboard-title">Teams</h2>
+          <p>${state.teams.length ? "Rename teams, edit members, or remove accidental teams." : "No teams have been created yet."}</p>
+        </div>
+      </div>
+      ${
+        state.teams.length
+          ? `<div class="admin-team-list">${state.teams.map(renderAdminTeamCard).join("")}</div>`
+          : renderNoTeams()
+      }
+    </section>
+  `;
+}
+
+function renderAdminTeamCard(team) {
+  const isFull = team.members.length >= TEAM_MEMBER_LIMIT;
+
+  return `
+    <article class="admin-team-card">
+      <div class="admin-team-card-header">
+        <div>
+          <h3>${escapeHtml(team.name)}</h3>
+          <p>${team.members.length}/${TEAM_MEMBER_LIMIT} ${pluralize("member", team.members.length)}</p>
+        </div>
+        <button class="danger-button" type="button" data-admin-delete-team="${escapeAttribute(team.id)}">Delete Team</button>
+      </div>
+
+      <form class="admin-inline-form" data-action="admin-rename-team" data-team-id="${escapeAttribute(team.id)}">
+        <label>
+          Team Name
+          <input name="name" value="${escapeAttribute(team.name)}" required>
+        </label>
+        <button class="secondary-button" type="submit">Save Team</button>
+      </form>
+
+      <form class="admin-inline-form" data-action="admin-add-member" data-team-id="${escapeAttribute(team.id)}">
+        <label>
+          Add Member
+          <input name="fullName" placeholder="${isFull ? "Team is full" : "First Last"}" ${isFull ? "disabled" : "required"}>
+        </label>
+        <button class="primary-button" type="submit" ${isFull ? "disabled" : ""}>Add Member</button>
+      </form>
+
+      <div class="admin-member-list">
+        ${
+          team.members.length
+            ? team.members.map((member) => renderAdminMemberRow(team, member)).join("")
+            : `<p class="muted small">No team members yet.</p>`
+        }
+      </div>
+    </article>
+  `;
+}
+
+function renderAdminMemberRow(team, member) {
+  return `
+    <div class="admin-member-row">
+      <form class="admin-inline-form" data-action="admin-rename-member" data-team-id="${escapeAttribute(team.id)}" data-member-id="${escapeAttribute(member.id)}">
+        <label>
+          Member
+          <input name="fullName" value="${escapeAttribute(member.fullName)}" required>
+        </label>
+        <button class="secondary-button" type="submit">Save</button>
+      </form>
+      <button class="danger-button" type="button" data-admin-delete-member="${escapeAttribute(member.id)}" data-team-id="${escapeAttribute(team.id)}">Remove</button>
+    </div>
+  `;
+}
+
 function renderStat(label, value) {
   return `
     <div class="stat-card">
@@ -718,7 +855,37 @@ async function handleSubmit(event) {
       showToast("Distance saved.");
     }
 
+    if (action === "admin-login") {
+      adminSession = await postJson("/api/admin/login", formData);
+      showToast("Admin login successful.");
+    }
+
+    if (action === "admin-rename-team") {
+      await requestJson(`/api/admin/teams/${encodeURIComponent(form.dataset.teamId)}`, {
+        method: "PATCH",
+        body: { name: formData.name }
+      });
+      showToast("Team updated.");
+    }
+
+    if (action === "admin-add-member") {
+      await requestJson(`/api/admin/teams/${encodeURIComponent(form.dataset.teamId)}/members`, {
+        method: "POST",
+        body: { fullName: formData.fullName }
+      });
+      showToast("Member added.");
+    }
+
+    if (action === "admin-rename-member") {
+      await requestJson(`/api/admin/teams/${encodeURIComponent(form.dataset.teamId)}/members/${encodeURIComponent(form.dataset.memberId)}`, {
+        method: "PATCH",
+        body: { fullName: formData.fullName }
+      });
+      showToast("Member updated.");
+    }
+
     await refreshState();
+    await refreshAdminSession();
     form.reset();
     render();
   } catch (error) {
@@ -760,10 +927,74 @@ async function submitDistance(form, formData) {
 
 function handleClick(event) {
   const toggle = event.target.closest("[data-team-toggle]");
+  const logoutButton = event.target.closest("[data-admin-logout]");
+  const deleteTeamButton = event.target.closest("[data-admin-delete-team]");
+  const deleteMemberButton = event.target.closest("[data-admin-delete-member]");
+
+  if (logoutButton) {
+    handleAdminLogout();
+    return;
+  }
+
+  if (deleteTeamButton) {
+    handleAdminDeleteTeam(deleteTeamButton.dataset.adminDeleteTeam);
+    return;
+  }
+
+  if (deleteMemberButton) {
+    handleAdminDeleteMember(deleteMemberButton.dataset.teamId, deleteMemberButton.dataset.adminDeleteMember);
+    return;
+  }
+
   if (!toggle) return;
 
   expandedTeamId = expandedTeamId === toggle.dataset.teamToggle ? null : toggle.dataset.teamToggle;
   render();
+}
+
+async function handleAdminLogout() {
+  try {
+    adminSession = await postJson("/api/admin/logout", {});
+    showToast("Logged out.");
+    render();
+  } catch (error) {
+    showToast(error.message || "Something went wrong.", "error");
+  }
+}
+
+async function handleAdminDeleteTeam(teamId) {
+  const team = state.teams.find((entry) => entry.id === teamId);
+
+  if (!team || !window.confirm(`Delete ${team.name}? This removes the team, its members, and mileage entries for that team.`)) {
+    return;
+  }
+
+  try {
+    await requestJson(`/api/admin/teams/${encodeURIComponent(teamId)}`, { method: "DELETE" });
+    await refreshState();
+    showToast("Team deleted.");
+    render();
+  } catch (error) {
+    showToast(error.message || "Something went wrong.", "error");
+  }
+}
+
+async function handleAdminDeleteMember(teamId, memberId) {
+  const team = state.teams.find((entry) => entry.id === teamId);
+  const member = team?.members.find((entry) => entry.id === memberId);
+
+  if (!team || !member || !window.confirm(`Remove ${member.fullName} from ${team.name}? This also removes that member's distance entries.`)) {
+    return;
+  }
+
+  try {
+    await requestJson(`/api/admin/teams/${encodeURIComponent(teamId)}/members/${encodeURIComponent(memberId)}`, { method: "DELETE" });
+    await refreshState();
+    showToast("Member removed.");
+    render();
+  } catch (error) {
+    showToast(error.message || "Something went wrong.", "error");
+  }
 }
 
 function handleChange(event) {
@@ -788,11 +1019,13 @@ function handleChange(event) {
   }
 }
 
-async function postJson(url, body) {
+async function requestJson(url, options = {}) {
+  const method = options.method || "POST";
+  const body = options.body;
   const response = await fetch(url, {
-    method: "POST",
+    method,
     headers: { "content-type": "application/json" },
-    body: JSON.stringify(body)
+    body: body === undefined ? undefined : JSON.stringify(body)
   });
   const payload = await response.json();
 
@@ -800,9 +1033,15 @@ async function postJson(url, body) {
     throw new Error(payload.error || "Please check the form and try again.");
   }
 
-  state = payload;
-  state.distanceEntries = state.distanceEntries || [];
+  if (payload?.teams) {
+    state = payload;
+    state.distanceEntries = state.distanceEntries || [];
+  }
   return payload;
+}
+
+async function postJson(url, body) {
+  return requestJson(url, { method: "POST", body });
 }
 
 function getChallengeWeeks() {
