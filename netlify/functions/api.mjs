@@ -311,7 +311,7 @@ export async function handler(event) {
         });
       } catch (error) {
         if (isMissingMessageSchemaError(error)) {
-          throw validationError("Messaging is not set up in Supabase yet. Run the latest schema update, then try again.", 500);
+          throw publicServerError("Messaging is not set up in Supabase yet. Run the full Supabase schema file from the top, then try again.");
         }
 
         throw error;
@@ -342,7 +342,7 @@ export async function handler(event) {
         });
       } catch (error) {
         if (isMissingMessageSchemaError(error)) {
-          throw validationError("Message reactions are not set up in Supabase yet. Run the latest schema update, then try again.", 500);
+          throw publicServerError("Message reactions are not set up in Supabase yet. Run the full Supabase schema file from the top, then try again.");
         }
 
         throw error;
@@ -507,12 +507,17 @@ export async function handler(event) {
 
     return json({ error: "Not found." }, 404);
   } catch (error) {
+    const status = error.status || 500;
+    const message = status === 500 && !error.publicMessage
+      ? "Something went wrong."
+      : error.message;
+
     return json(
       {
-        error: error.status === 500 ? "Something went wrong." : error.message,
+        error: message,
         ...(error.payload || {})
       },
-      error.status || 500
+      status
     );
   }
 }
@@ -658,7 +663,7 @@ async function supabaseFetch(path, options = {}) {
   const supabaseKey = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
 
   if (!supabaseUrl || !supabaseKey) {
-    throw validationError("Supabase is not configured. Add SUPABASE_URL and SUPABASE_SECRET_KEY in Netlify.", 500);
+    throw publicServerError("Supabase is not configured. Add SUPABASE_URL and SUPABASE_SECRET_KEY in Netlify, then deploy again.");
   }
 
   const response = await fetch(`${supabaseUrl}/rest/v1/${path}`, {
@@ -1219,6 +1224,12 @@ function eqParam(value) {
 function validationError(message, status = 400) {
   const error = new Error(message);
   error.status = status;
+  return error;
+}
+
+function publicServerError(message) {
+  const error = validationError(message, 500);
+  error.publicMessage = true;
   return error;
 }
 

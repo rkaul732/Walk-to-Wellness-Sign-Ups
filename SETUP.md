@@ -86,3 +86,15 @@ After the new deploy finishes:
 7. Open `/admin`, log in, and confirm you can manage the test team.
 
 If anything fails, check **Netlify** > **Functions** > `api` logs first. Most setup issues are either missing environment variables or the Supabase SQL schema not being run yet.
+
+## Message wall troubleshooting
+
+If the Messages page says messaging is not set up, go back to Supabase **SQL Editor** and run the full [supabase/schema.sql](./supabase/schema.sql) file from the very first line. Do not run only the message-wall section, because the message tables connect back to the `teams` table.
+
+If Supabase shows `relation "public.teams" does not exist`, that is the sign that the full schema has not run from the top yet. Start again at:
+
+```sql
+create extension if not exists "pgcrypto";
+```
+
+Then run the whole file in one pass.
