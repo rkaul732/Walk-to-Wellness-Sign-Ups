@@ -20,6 +20,10 @@ export async function handler(event) {
       return json(await loadPublicState());
     }
 
+    if (method === "GET" && pathname === "/api/message-wall-check") {
+      return json(await checkMessageWallSetup());
+    }
+
     if (method === "GET" && pathname === "/api/admin/session") {
       const session = getAdminSession(event);
       return json({
@@ -311,7 +315,7 @@ export async function handler(event) {
         });
       } catch (error) {
         if (isMissingMessageSchemaError(error)) {
-          throw publicServerError("Messaging is not set up in Supabase yet. Run the full Supabase schema file from the top, then try again.");
+          throw publicServerError(`Messaging is not set up in Supabase yet. Supabase said: ${error.message}`);
         }
 
         throw error;
@@ -342,7 +346,7 @@ export async function handler(event) {
         });
       } catch (error) {
         if (isMissingMessageSchemaError(error)) {
-          throw publicServerError("Message reactions are not set up in Supabase yet. Run the full Supabase schema file from the top, then try again.");
+          throw publicServerError(`Message reactions are not set up in Supabase yet. Supabase said: ${error.message}`);
         }
 
         throw error;
@@ -653,6 +657,75 @@ async function loadMessageReactionRows() {
   }
 }
 
+async function checkMessageWallSetup() {
+  const supabaseUrl = process.env.SUPABASE_URL?.replace(/\/$/, "");
+  const supabaseKey = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!supabaseUrl || !supabaseKey) {
+    return {
+      ok: false,
+      checkedAt: new Date().toISOString(),
+      supabaseConfigured: false,
+      supabaseHost: supabaseUrl ? safeHost(supabaseUrl) : null,
+      message: "Netlify is missing SUPABASE_URL or SUPABASE_SECRET_KEY."
+    };
+  }
+
+  const checks = await Promise.all([
+    probeSupabase("teams", "teams?select=id&limit=1"),
+    probeSupabase("messages", "messages?select=id,author_name,parent_message_id,team_id,team_name,message_text,image_data,image_name,created_at&limit=1"),
+    probeSupabase("message_reactions", "message_reactions?select=id,message_id,reaction_emoji,created_at&limit=1")
+  ]);
+  const ok = checks.every((check) => check.ok);
+
+  return {
+    ok,
+    checkedAt: new Date().toISOString(),
+    supabaseConfigured: true,
+    supabaseHost: safeHost(supabaseUrl),
+    checks,
+    message: ok
+      ? "The message wall tables are visible to Netlify."
+      : "At least one message wall table or column is still not visible to Netlify. Run the repair SQL in the same Supabase project shown by supabaseHost, then wait 30 seconds and check again."
+  };
+}
+
+async function probeSupabase(name, path) {
+  const supabaseUrl = process.env.SUPABASE_URL?.replace(/\/$/, "");
+  const supabaseKey = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  try {
+    const response = await fetch(`${supabaseUrl}/rest/v1/${path}`, {
+      method: "GET",
+      headers: {
+        apikey: supabaseKey,
+        authorization: `Bearer ${supabaseKey}`,
+        "content-type": "application/json"
+      }
+    });
+    const text = await response.text();
+    const payload = text ? JSON.parse(text) : null;
+
+    return {
+      name,
+      ok: response.ok,
+      status: response.status,
+      error: response.ok ? null : payload?.message || payload?.hint || "Supabase request failed.",
+      code: response.ok ? null : payload?.code || null,
+      hint: response.ok ? null : payload?.hint || null
+    };
+  } catch (error) {
+    return {
+      name,
+      ok: false,
+      status: 0,
+      error: error.message || "Could not reach Supabase.",
+      code: null,
+      hint: null
+    };
+  }
+}
+
 function isMissingMessageSchemaError(error) {
   return /(messages|message_reactions|parent_message_id|reaction_emoji)/i.test(error.message || "")
     && /(schema cache|does not exist|not find|relation|column)/i.test(error.message || "");
@@ -686,6 +759,14 @@ async function supabaseFetch(path, options = {}) {
   }
 
   return payload || [];
+}
+
+function safeHost(value) {
+  try {
+    return new URL(value).host;
+  } catch {
+    return value;
+  }
 }
 
 function getPublicState(state) {
