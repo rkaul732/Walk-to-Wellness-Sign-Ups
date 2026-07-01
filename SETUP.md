@@ -91,6 +91,8 @@ If anything fails, check **Netlify** > **Functions** > `api` logs first. Most se
 
 If the Messages page says messaging is not set up, go back to Supabase **SQL Editor** and run the full [supabase/schema.sql](./supabase/schema.sql) file from the very first line. Do not run only the message-wall section, because the message tables connect back to the `teams` table.
 
+If the rest of the site is already working and only the Messages page is stuck, you can run [supabase/message-wall-repair.sql](./supabase/message-wall-repair.sql) instead. That file only repairs the message wall tables and refreshes Supabase's API cache.
+
 If Supabase shows `relation "public.teams" does not exist`, that is the sign that the full schema has not run from the top yet. Start again at:
 
 ```sql

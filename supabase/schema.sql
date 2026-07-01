@@ -162,3 +162,5 @@ grant select, insert, update, delete on public.activities to service_role;
 grant select, insert, update, delete on public.distance_entries to service_role;
 grant select, insert, update, delete on public.messages to service_role;
 grant select, insert, update, delete on public.message_reactions to service_role;
+
+notify pgrst, 'reload schema';
