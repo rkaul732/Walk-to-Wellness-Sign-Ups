@@ -15,6 +15,7 @@ const DATA_PATH =
   process.env.DATA_PATH || path.join(__dirname, "data", "walk-to-wellness.json");
 const TEAM_MEMBER_LIMIT = 10;
 const TEAM_FULL_MESSAGE = "This team already has 10 people, so it is full. Please join a new team.";
+const MESSAGE_IMAGE_DATA_LIMIT = 1_600_000;
 const ADMIN_COOKIE_NAME = "ww_admin_session";
 const ADMIN_SESSION_MS = 8 * 60 * 60 * 1000;
 
@@ -22,7 +23,8 @@ const initialState = {
   teams: [],
   registrations: [],
   activities: [],
-  distanceEntries: []
+  distanceEntries: [],
+  messages: []
 };
 
 const mimeTypes = {
@@ -88,6 +90,9 @@ function normalizeState(state) {
       : [],
     distanceEntries: Array.isArray(source.distanceEntries)
       ? source.distanceEntries.map(normalizeDistanceEntry)
+      : [],
+    messages: Array.isArray(source.messages)
+      ? source.messages.map(normalizeMessage)
       : []
   };
 }
@@ -159,6 +164,19 @@ function normalizeDistanceEntry(entry) {
   };
 }
 
+function normalizeMessage(message) {
+  return {
+    id: cleanString(message.id) || crypto.randomUUID(),
+    authorName: cleanString(message.authorName),
+    teamId: cleanString(message.teamId) || null,
+    teamName: cleanString(message.teamName),
+    messageText: cleanMessageText(message.messageText),
+    imageData: cleanString(message.imageData),
+    imageName: cleanString(message.imageName),
+    createdAt: cleanString(message.createdAt) || new Date().toISOString()
+  };
+}
+
 function getPublicState(state) {
   const teams = [...state.teams]
     .map((team) => ({
@@ -176,6 +194,9 @@ function getPublicState(state) {
       b.createdAt.localeCompare(a.createdAt)
     ),
     distanceEntries: [...state.distanceEntries].sort((a, b) =>
+      b.createdAt.localeCompare(a.createdAt)
+    ),
+    messages: [...(state.messages || [])].sort((a, b) =>
       b.createdAt.localeCompare(a.createdAt)
     ),
     totals: buildTotals({ ...state, teams })
@@ -244,6 +265,32 @@ function roundMiles(value) {
 
 function cleanString(value) {
   return String(value ?? "").trim().replace(/\s+/g, " ");
+}
+
+function cleanMessageText(value) {
+  return String(value ?? "")
+    .trim()
+    .replace(/\r\n/g, "\n")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n{3,}/g, "\n\n");
+}
+
+function validateMessageImage(imageData) {
+  const cleanData = cleanString(imageData);
+
+  if (!cleanData) {
+    return "";
+  }
+
+  if (!/^data:image\/(?:jpeg|jpg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(cleanData)) {
+    throw validationError("Please upload a JPG, PNG, or WebP image.");
+  }
+
+  if (cleanData.length > MESSAGE_IMAGE_DATA_LIMIT) {
+    throw validationError("Please choose a smaller photo.");
+  }
+
+  return cleanData;
 }
 
 function nameKey(value) {
@@ -914,6 +961,46 @@ async function handleApi(request, response, url) {
       }
 
       draft.teams.push(team);
+    });
+
+    sendJson(response, getPublicState(state), 201);
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/messages") {
+    const body = await readJsonBody(request);
+    const authorName = cleanString(body.authorName);
+    const teamId = cleanString(body.teamId);
+    const messageText = cleanMessageText(body.messageText);
+    const imageData = validateMessageImage(body.imageData);
+    const imageName = cleanString(body.imageName);
+
+    if (!authorName || !messageText) {
+      throw validationError("Name and message are required.");
+    }
+
+    if (authorName.length > 80) {
+      throw validationError("Please keep your name under 80 characters.");
+    }
+
+    if (messageText.length > 600) {
+      throw validationError("Please keep your message under 600 characters.");
+    }
+
+    const { state } = await updateState((draft) => {
+      const team = teamId ? draft.teams.find((entry) => entry.id === teamId) : null;
+
+      draft.messages = draft.messages || [];
+      draft.messages.push({
+        id: crypto.randomUUID(),
+        authorName,
+        teamId: team?.id || null,
+        teamName: team?.name || "",
+        messageText,
+        imageData,
+        imageName,
+        createdAt: new Date().toISOString()
+      });
     });
 
     sendJson(response, getPublicState(state), 201);

@@ -738,6 +738,72 @@ select:disabled {
   line-height: 0.95;
 }
 
+.messages-page .single-column {
+  max-width: 1040px;
+}
+
+.message-form-panel {
+  margin-bottom: 22px;
+}
+
+.message-wall-panel {
+  display: grid;
+  gap: 16px;
+}
+
+.message-wall {
+  display: grid;
+  gap: 14px;
+}
+
+.message-card {
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+  background: var(--soft-white);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.message-card-header {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.message-card h3 {
+  margin: 0;
+  color: var(--ink);
+  font-size: 1.15rem;
+}
+
+.message-card-header p,
+.message-card time {
+  margin: 4px 0 0;
+  color: var(--blue);
+  font-weight: 800;
+}
+
+.message-card time {
+  min-width: max-content;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.message-text {
+  margin: 0;
+  color: var(--ink);
+}
+
+.message-photo {
+  width: min(100%, 720px);
+  max-height: 520px;
+  object-fit: cover;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
 .live-feed-shell {
   max-width: 1220px;
 }

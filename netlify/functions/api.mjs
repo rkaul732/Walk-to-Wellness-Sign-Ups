@@ -6,6 +6,7 @@ const jsonHeaders = {
 };
 const TEAM_MEMBER_LIMIT = 10;
 const TEAM_FULL_MESSAGE = "This team already has 10 people, so it is full. Please join a new team.";
+const MESSAGE_IMAGE_DATA_LIMIT = 1_600_000;
 const ADMIN_COOKIE_NAME = "ww_admin_session";
 const ADMIN_SESSION_MS = 8 * 60 * 60 * 1000;
 
@@ -259,6 +260,51 @@ export async function handler(event) {
       return json(await loadPublicState(), 201);
     }
 
+    if (method === "POST" && pathname === "/api/messages") {
+      const body = readJson(event);
+      const authorName = cleanString(body.authorName);
+      const teamId = cleanString(body.teamId);
+      const messageText = cleanMessageText(body.messageText);
+      const imageData = validateMessageImage(body.imageData);
+      const imageName = cleanString(body.imageName);
+      const currentState = await loadPublicState();
+      const team = teamId ? currentState.teams.find((entry) => entry.id === teamId) : null;
+
+      if (!authorName || !messageText) {
+        throw validationError("Name and message are required.");
+      }
+
+      if (authorName.length > 80) {
+        throw validationError("Please keep your name under 80 characters.");
+      }
+
+      if (messageText.length > 600) {
+        throw validationError("Please keep your message under 600 characters.");
+      }
+
+      try {
+        await supabaseFetch("messages", {
+          method: "POST",
+          body: JSON.stringify({
+            author_name: authorName,
+            team_id: team?.id || null,
+            team_name: team?.name || "",
+            message_text: messageText,
+            image_data: imageData || null,
+            image_name: imageName
+          })
+        });
+      } catch (error) {
+        if (isMissingMessagesTableError(error)) {
+          throw validationError("Messaging is not set up in Supabase yet. Run the latest schema update, then try again.", 500);
+        }
+
+        throw error;
+      }
+
+      return json(await loadPublicState(), 201);
+    }
+
     const joinMatch = pathname.match(/^\/api\/teams\/([^/]+)\/members$/);
 
     if (method === "POST" && joinMatch) {
@@ -450,12 +496,13 @@ function readJson(event) {
 }
 
 async function loadPublicState() {
-  const [teamRows, memberRows, registrationRows, activityRows, distanceRows] = await Promise.all([
+  const [teamRows, memberRows, registrationRows, activityRows, distanceRows, messageRows] = await Promise.all([
     supabaseFetch("teams?select=id,name,created_at&order=name.asc"),
     supabaseFetch("team_members?select=id,team_id,full_name,joined_at&order=joined_at.asc"),
     supabaseFetch("registrations?select=id,first_name,last_name,program_name,office_site,created_at&order=created_at.desc"),
     supabaseFetch("activities?select=id,participant_name,miles,activity_type,duration,activity_date,team_id,created_at&order=created_at.desc"),
-    supabaseFetch("distance_entries?select=id,team_id,team_name,member_id,member_name,entry_mode,week_number,daily_miles,weekly_miles,total_miles,created_at&order=created_at.desc")
+    supabaseFetch("distance_entries?select=id,team_id,team_name,member_id,member_name,entry_mode,week_number,daily_miles,weekly_miles,total_miles,created_at&order=created_at.desc"),
+    loadMessageRows()
   ]);
 
   const membersByTeam = new Map();
@@ -507,10 +554,36 @@ async function loadPublicState() {
       weeklyMiles: Number(row.weekly_miles) || 0,
       totalMiles: Number(row.total_miles) || 0,
       createdAt: row.created_at
+    })),
+    messages: messageRows.map((row) => ({
+      id: row.id,
+      authorName: row.author_name,
+      teamId: row.team_id,
+      teamName: row.team_name || "",
+      messageText: row.message_text,
+      imageData: row.image_data || "",
+      imageName: row.image_name || "",
+      createdAt: row.created_at
     }))
   };
 
   return getPublicState(state);
+}
+
+async function loadMessageRows() {
+  try {
+    return await supabaseFetch("messages?select=id,author_name,team_id,team_name,message_text,image_data,image_name,created_at&order=created_at.desc");
+  } catch (error) {
+    if (isMissingMessagesTableError(error)) {
+      return [];
+    }
+
+    throw error;
+  }
+}
+
+function isMissingMessagesTableError(error) {
+  return /messages/i.test(error.message || "") && /(schema cache|does not exist|not find|relation)/i.test(error.message || "");
 }
 
 async function supabaseFetch(path, options = {}) {
@@ -560,6 +633,9 @@ function getPublicState(state) {
       b.createdAt.localeCompare(a.createdAt)
     ),
     distanceEntries: [...state.distanceEntries].sort((a, b) =>
+      b.createdAt.localeCompare(a.createdAt)
+    ),
+    messages: [...(state.messages || [])].sort((a, b) =>
       b.createdAt.localeCompare(a.createdAt)
     ),
     totals: buildTotals({ ...state, teams })
@@ -647,6 +723,32 @@ function splitMemberNames(value) {
 
 function cleanString(value) {
   return String(value ?? "").trim().replace(/\s+/g, " ");
+}
+
+function cleanMessageText(value) {
+  return String(value ?? "")
+    .trim()
+    .replace(/\r\n/g, "\n")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n{3,}/g, "\n\n");
+}
+
+function validateMessageImage(imageData) {
+  const cleanData = cleanString(imageData);
+
+  if (!cleanData) {
+    return "";
+  }
+
+  if (!/^data:image\/(?:jpeg|jpg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(cleanData)) {
+    throw validationError("Please upload a JPG, PNG, or WebP image.");
+  }
+
+  if (cleanData.length > MESSAGE_IMAGE_DATA_LIMIT) {
+    throw validationError("Please choose a smaller photo.");
+  }
+
+  return cleanData;
 }
 
 function validateMiles(value, label) {

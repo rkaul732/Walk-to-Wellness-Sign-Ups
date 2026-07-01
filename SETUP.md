@@ -80,8 +80,9 @@ After the new deploy finishes:
 1. Open the Netlify URL.
 2. Create a team.
 3. Join that team with a test name.
-4. Submit miles on the Step Submission page.
-5. Confirm the Live Feed charts update.
-6. Open `/admin`, log in, and confirm you can manage the test team.
+4. Submit miles on the Enter Distance page.
+5. Post a test encouragement message on the Messages page.
+6. Confirm the Live Feed charts update.
+7. Open `/admin`, log in, and confirm you can manage the test team.
 
 If anything fails, check **Netlify** > **Functions** > `api` logs first. Most setup issues are either missing environment variables or the Supabase SQL schema not being run yet.

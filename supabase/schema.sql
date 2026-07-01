@@ -101,14 +101,33 @@ create index if not exists distance_entries_member_id_idx
 create index if not exists distance_entries_week_number_idx
   on public.distance_entries (week_number);
 
+create table if not exists public.messages (
+  id uuid primary key default gen_random_uuid(),
+  author_name text not null check (length(trim(author_name)) > 0),
+  team_id uuid references public.teams(id) on delete set null,
+  team_name text,
+  message_text text not null check (length(trim(message_text)) > 0),
+  image_data text,
+  image_name text,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists messages_created_at_idx
+  on public.messages (created_at desc);
+
+create index if not exists messages_team_id_idx
+  on public.messages (team_id);
+
 alter table public.teams enable row level security;
 alter table public.team_members enable row level security;
 alter table public.registrations enable row level security;
 alter table public.activities enable row level security;
 alter table public.distance_entries enable row level security;
+alter table public.messages enable row level security;
 
 grant select, insert, update, delete on public.teams to service_role;
 grant select, insert, update, delete on public.team_members to service_role;
 grant select, insert, update, delete on public.registrations to service_role;
 grant select, insert, update, delete on public.activities to service_role;
 grant select, insert, update, delete on public.distance_entries to service_role;
+grant select, insert, update, delete on public.messages to service_role;

@@ -14,7 +14,7 @@ Then open:
 http://localhost:4173
 ```
 
-The site stores teams, members, registrations, and step submissions in `data/walk-to-wellness.json`.
+The site stores teams, members, registrations, distance entries, and wall messages in `data/walk-to-wellness.json`.
 
 ## Deploy publicly
 

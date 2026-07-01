@@ -2,6 +2,7 @@ const routes = {
   register: "Register for Walk to Wellness",
   "create-team": "Create a Team",
   "enter-distance": "Enter Distance",
+  messages: "Messages",
   "join-team": "Join a Team",
   "step-submission": "Step Submission",
   "live-feed": "Live Feed",
@@ -13,6 +14,9 @@ const toast = document.querySelector("#toast");
 const TEAM_MEMBER_LIMIT = 10;
 const TEAM_FULL_MESSAGE = "This team already has 10 people, so it is full. Please join a new team.";
 const KICKOFF_MESSAGE = "Kickoff on July 6!";
+const MESSAGE_IMAGE_DATA_LIMIT = 1_600_000;
+const MESSAGE_IMAGE_MAX_FILE_SIZE = 8 * 1024 * 1024;
+const MESSAGE_IMAGE_MAX_SIDE = 1200;
 const weekColors = [
   "#9ec9e8",
   "#7fb3dc",
@@ -62,6 +66,7 @@ async function refreshState() {
   const response = await fetch("/api/state", { cache: "no-store" });
   state = await response.json();
   state.distanceEntries = state.distanceEntries || [];
+  state.messages = state.messages || [];
 }
 
 async function refreshAdminSession() {
@@ -104,6 +109,7 @@ function render() {
   if (route === "register") renderRegisterPage();
   if (route === "create-team") renderCreateTeamPage();
   if (route === "enter-distance") renderEnterDistancePage();
+  if (route === "messages") renderMessagesPage();
   if (route === "join-team") renderJoinTeamPage();
   if (route === "step-submission") renderStepSubmissionPage();
   if (route === "live-feed") renderLiveFeedPage();
@@ -457,6 +463,89 @@ function renderStepSubmissionPage() {
         </section>
       </div>
     </section>
+  `;
+}
+
+function renderMessagesPage() {
+  const messages = state.messages || [];
+
+  app.innerHTML = `
+    <section class="page content-band messages-page">
+      <div class="single-column">
+        <div class="section-header">
+          <div>
+            <h1>Messages</h1>
+            <p>Post encouragement, celebrate team wins, and share pictures from your walks.</p>
+          </div>
+        </div>
+
+        <section class="form-panel message-form-panel" aria-labelledby="message-form-title">
+          <h2 id="message-form-title">Post to the Wall</h2>
+          <form class="form-grid" data-action="message">
+            <div class="form-grid two-column">
+              <label>
+                Name
+                <input name="authorName" autocomplete="name" maxlength="80" required>
+              </label>
+              <label>
+                Team
+                <select name="teamId">
+                  <option value="">No team selected</option>
+                  ${state.teams
+                    .map((team) => `<option value="${escapeAttribute(team.id)}">${escapeHtml(team.name)}</option>`)
+                    .join("")}
+                </select>
+              </label>
+            </div>
+            <label>
+              Encouragement Message
+              <textarea name="messageText" maxlength="600" placeholder="Cheer someone on or share a walking highlight." required></textarea>
+            </label>
+            <label>
+              Walk Photo
+              <input name="walkPhoto" type="file" accept="image/jpeg,image/png,image/webp">
+            </label>
+            <div class="button-row">
+              <button class="primary-button" type="submit">Post Message</button>
+            </div>
+          </form>
+        </section>
+
+        <section class="panel message-wall-panel" aria-labelledby="message-wall-title">
+          <div class="section-header compact-header">
+            <div>
+              <h2 id="message-wall-title">Encouragement Wall</h2>
+              <p>${messages.length ? `${messages.length} ${pluralize("post", messages.length)}` : "No messages yet."}</p>
+            </div>
+          </div>
+          ${
+            messages.length
+              ? `<div class="message-wall">${messages.map(renderMessageCard).join("")}</div>`
+              : `<p class="muted">Be the first to cheer on the Walk to Wellness teams.</p>`
+          }
+        </section>
+      </div>
+    </section>
+  `;
+}
+
+function renderMessageCard(message) {
+  return `
+    <article class="message-card">
+      <div class="message-card-header">
+        <div>
+          <h3>${escapeHtml(message.authorName)}</h3>
+          ${message.teamName ? `<p>${escapeHtml(message.teamName)}</p>` : ""}
+        </div>
+        <time datetime="${escapeAttribute(message.createdAt)}">${escapeHtml(formatDateTime(message.createdAt))}</time>
+      </div>
+      <p class="message-text">${formatMessageText(message.messageText)}</p>
+      ${
+        message.imageData
+          ? `<img class="message-photo" src="${escapeAttribute(message.imageData)}" alt="${escapeAttribute(message.imageName || "Walk photo")}">`
+          : ""
+      }
+    </article>
   `;
 }
 
@@ -837,6 +926,11 @@ async function handleSubmit(event) {
       showToast("Distance saved.");
     }
 
+    if (action === "message") {
+      await submitMessage(form);
+      showToast("Message posted.");
+    }
+
     if (action === "admin-login") {
       adminSession = await postJson("/api/admin/login", formData);
       showToast("Admin login successful.");
@@ -919,6 +1013,81 @@ async function submitDistance(form, formData) {
       duplicateAction
     });
   }
+}
+
+async function submitMessage(form) {
+  const formData = new FormData(form);
+  const walkPhoto = formData.get("walkPhoto");
+  const body = {
+    authorName: formData.get("authorName"),
+    teamId: formData.get("teamId"),
+    messageText: formData.get("messageText"),
+    imageData: "",
+    imageName: ""
+  };
+
+  if (walkPhoto instanceof File && walkPhoto.size > 0) {
+    const image = await prepareMessageImage(walkPhoto);
+    body.imageData = image.imageData;
+    body.imageName = image.imageName;
+  }
+
+  await postJson("/api/messages", body);
+}
+
+async function prepareMessageImage(file) {
+  if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
+    throw new Error("Please upload a JPG, PNG, or WebP image.");
+  }
+
+  if (file.size > MESSAGE_IMAGE_MAX_FILE_SIZE) {
+    throw new Error("Please choose a photo smaller than 8 MB.");
+  }
+
+  const image = await loadImage(file);
+  const scale = Math.min(1, MESSAGE_IMAGE_MAX_SIDE / Math.max(image.width, image.height));
+  const width = Math.max(1, Math.round(image.width * scale));
+  const height = Math.max(1, Math.round(image.height * scale));
+  const canvas = document.createElement("canvas");
+  const context = canvas.getContext("2d");
+
+  canvas.width = width;
+  canvas.height = height;
+  context.drawImage(image, 0, 0, width, height);
+
+  let quality = 0.82;
+  let imageData = canvas.toDataURL("image/jpeg", quality);
+
+  while (imageData.length > MESSAGE_IMAGE_DATA_LIMIT && quality > 0.46) {
+    quality -= 0.12;
+    imageData = canvas.toDataURL("image/jpeg", quality);
+  }
+
+  if (imageData.length > MESSAGE_IMAGE_DATA_LIMIT) {
+    throw new Error("Please choose a smaller photo.");
+  }
+
+  return {
+    imageData,
+    imageName: file.name
+  };
+}
+
+function loadImage(file) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const image = new Image();
+
+    image.onload = () => {
+      URL.revokeObjectURL(url);
+      resolve(image);
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("Please choose a different photo."));
+    };
+    image.src = url;
+  });
 }
 
 function showDuplicateDistanceModal(duplicate) {
@@ -1069,6 +1238,7 @@ async function requestJson(url, options = {}) {
   if (payload?.teams) {
     state = payload;
     state.distanceEntries = state.distanceEntries || [];
+    state.messages = state.messages || [];
   }
   return payload;
 }
@@ -1292,6 +1462,25 @@ function formatShortDate(date) {
     month: "short",
     day: "numeric"
   });
+}
+
+function formatDateTime(value) {
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+
+  return date.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit"
+  });
+}
+
+function formatMessageText(value) {
+  return escapeHtml(value || "").replace(/\n/g, "<br>");
 }
 
 function toISODate(date) {
