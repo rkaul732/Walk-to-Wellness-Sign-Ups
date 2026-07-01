@@ -7,6 +7,7 @@ const jsonHeaders = {
 const TEAM_MEMBER_LIMIT = 10;
 const TEAM_FULL_MESSAGE = "This team already has 10 people, so it is full. Please join a new team.";
 const MESSAGE_IMAGE_DATA_LIMIT = 1_600_000;
+const MESSAGE_REACTION_EMOJIS = ["👍", "❤️", "👏", "🎉", "😊", "💪"];
 const ADMIN_COOKIE_NAME = "ww_admin_session";
 const ADMIN_SESSION_MS = 8 * 60 * 60 * 1000;
 
@@ -263,11 +264,15 @@ export async function handler(event) {
     if (method === "POST" && pathname === "/api/messages") {
       const body = readJson(event);
       const authorName = cleanString(body.authorName);
+      const parentMessageId = cleanString(body.parentMessageId);
       const teamId = cleanString(body.teamId);
       const messageText = cleanMessageText(body.messageText);
       const imageData = validateMessageImage(body.imageData);
       const imageName = cleanString(body.imageName);
       const currentState = await loadPublicState();
+      const parentMessage = parentMessageId
+        ? currentState.messages.find((entry) => entry.id === parentMessageId)
+        : null;
       const team = teamId ? currentState.teams.find((entry) => entry.id === teamId) : null;
 
       if (!authorName || !messageText) {
@@ -282,21 +287,62 @@ export async function handler(event) {
         throw validationError("Please keep your message under 600 characters.");
       }
 
+      if (parentMessageId && !parentMessage) {
+        throw validationError("The post you are replying to was not found.", 404);
+      }
+
       try {
+        const messagePayload = {
+          author_name: authorName,
+          team_id: team?.id || null,
+          team_name: team?.name || "",
+          message_text: messageText,
+          image_data: imageData || null,
+          image_name: imageName
+        };
+
+        if (parentMessageId) {
+          messagePayload.parent_message_id = parentMessage.id;
+        }
+
         await supabaseFetch("messages", {
           method: "POST",
+          body: JSON.stringify(messagePayload)
+        });
+      } catch (error) {
+        if (isMissingMessageSchemaError(error)) {
+          throw validationError("Messaging is not set up in Supabase yet. Run the latest schema update, then try again.", 500);
+        }
+
+        throw error;
+      }
+
+      return json(await loadPublicState(), 201);
+    }
+
+    const reactionMatch = pathname.match(/^\/api\/messages\/([^/]+)\/reactions$/);
+
+    if (method === "POST" && reactionMatch) {
+      const messageId = decodeURIComponent(reactionMatch[1]);
+      const body = readJson(event);
+      const emoji = validateMessageReaction(body.emoji);
+      const currentState = await loadPublicState();
+
+      if (!currentState.messages.some((entry) => entry.id === messageId)) {
+        throw validationError("Message was not found.", 404);
+      }
+
+      try {
+        await supabaseFetch("message_reactions", {
+          method: "POST",
           body: JSON.stringify({
-            author_name: authorName,
-            team_id: team?.id || null,
-            team_name: team?.name || "",
-            message_text: messageText,
-            image_data: imageData || null,
-            image_name: imageName
+            message_id: messageId,
+            reaction_emoji: emoji
           })
         });
       } catch (error) {
-        if (isMissingMessagesTableError(error)) {
-          throw validationError("Messaging is not set up in Supabase yet. Run the latest schema update, then try again.", 500);
+        if (isMissingMessageSchemaError(error)) {
+          throw validationError("Message reactions are not set up in Supabase yet. Run the latest schema update, then try again.", 500);
         }
 
         throw error;
@@ -496,13 +542,14 @@ function readJson(event) {
 }
 
 async function loadPublicState() {
-  const [teamRows, memberRows, registrationRows, activityRows, distanceRows, messageRows] = await Promise.all([
+  const [teamRows, memberRows, registrationRows, activityRows, distanceRows, messageRows, reactionRows] = await Promise.all([
     supabaseFetch("teams?select=id,name,created_at&order=name.asc"),
     supabaseFetch("team_members?select=id,team_id,full_name,joined_at&order=joined_at.asc"),
     supabaseFetch("registrations?select=id,first_name,last_name,program_name,office_site,created_at&order=created_at.desc"),
     supabaseFetch("activities?select=id,participant_name,miles,activity_type,duration,activity_date,team_id,created_at&order=created_at.desc"),
     supabaseFetch("distance_entries?select=id,team_id,team_name,member_id,member_name,entry_mode,week_number,daily_miles,weekly_miles,total_miles,created_at&order=created_at.desc"),
-    loadMessageRows()
+    loadMessageRows(),
+    loadMessageReactionRows()
   ]);
 
   const membersByTeam = new Map();
@@ -558,11 +605,18 @@ async function loadPublicState() {
     messages: messageRows.map((row) => ({
       id: row.id,
       authorName: row.author_name,
+      parentMessageId: row.parent_message_id || null,
       teamId: row.team_id,
       teamName: row.team_name || "",
       messageText: row.message_text,
       imageData: row.image_data || "",
       imageName: row.image_name || "",
+      createdAt: row.created_at
+    })),
+    messageReactions: reactionRows.map((row) => ({
+      id: row.id,
+      messageId: row.message_id,
+      emoji: row.reaction_emoji,
       createdAt: row.created_at
     }))
   };
@@ -572,9 +626,9 @@ async function loadPublicState() {
 
 async function loadMessageRows() {
   try {
-    return await supabaseFetch("messages?select=id,author_name,team_id,team_name,message_text,image_data,image_name,created_at&order=created_at.desc");
+    return await supabaseFetch("messages?select=id,author_name,parent_message_id,team_id,team_name,message_text,image_data,image_name,created_at&order=created_at.desc");
   } catch (error) {
-    if (isMissingMessagesTableError(error)) {
+    if (isMissingMessageSchemaError(error)) {
       return [];
     }
 
@@ -582,8 +636,21 @@ async function loadMessageRows() {
   }
 }
 
-function isMissingMessagesTableError(error) {
-  return /messages/i.test(error.message || "") && /(schema cache|does not exist|not find|relation)/i.test(error.message || "");
+async function loadMessageReactionRows() {
+  try {
+    return await supabaseFetch("message_reactions?select=id,message_id,reaction_emoji,created_at&order=created_at.desc");
+  } catch (error) {
+    if (isMissingMessageSchemaError(error)) {
+      return [];
+    }
+
+    throw error;
+  }
+}
+
+function isMissingMessageSchemaError(error) {
+  return /(messages|message_reactions|parent_message_id|reaction_emoji)/i.test(error.message || "")
+    && /(schema cache|does not exist|not find|relation|column)/i.test(error.message || "");
 }
 
 async function supabaseFetch(path, options = {}) {
@@ -635,11 +702,28 @@ function getPublicState(state) {
     distanceEntries: [...state.distanceEntries].sort((a, b) =>
       b.createdAt.localeCompare(a.createdAt)
     ),
-    messages: [...(state.messages || [])].sort((a, b) =>
-      b.createdAt.localeCompare(a.createdAt)
-    ),
+    messages: buildPublicMessages(state),
     totals: buildTotals({ ...state, teams })
   };
+}
+
+function buildPublicMessages(state) {
+  const reactionCounts = new Map();
+
+  for (const reaction of state.messageReactions || []) {
+    if (!MESSAGE_REACTION_EMOJIS.includes(reaction.emoji)) continue;
+
+    const counts = reactionCounts.get(reaction.messageId) || {};
+    counts[reaction.emoji] = (counts[reaction.emoji] || 0) + 1;
+    reactionCounts.set(reaction.messageId, counts);
+  }
+
+  return [...(state.messages || [])]
+    .map((message) => ({
+      ...message,
+      reactionCounts: reactionCounts.get(message.id) || {}
+    }))
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
 function buildTotals(state) {
@@ -749,6 +833,16 @@ function validateMessageImage(imageData) {
   }
 
   return cleanData;
+}
+
+function validateMessageReaction(value) {
+  const emoji = cleanString(value);
+
+  if (!MESSAGE_REACTION_EMOJIS.includes(emoji)) {
+    throw validationError("Please choose a supported reaction.");
+  }
+
+  return emoji;
 }
 
 function validateMiles(value, label) {

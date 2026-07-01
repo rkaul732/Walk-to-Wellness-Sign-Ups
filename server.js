@@ -16,6 +16,7 @@ const DATA_PATH =
 const TEAM_MEMBER_LIMIT = 10;
 const TEAM_FULL_MESSAGE = "This team already has 10 people, so it is full. Please join a new team.";
 const MESSAGE_IMAGE_DATA_LIMIT = 1_600_000;
+const MESSAGE_REACTION_EMOJIS = ["👍", "❤️", "👏", "🎉", "😊", "💪"];
 const ADMIN_COOKIE_NAME = "ww_admin_session";
 const ADMIN_SESSION_MS = 8 * 60 * 60 * 1000;
 
@@ -24,7 +25,8 @@ const initialState = {
   registrations: [],
   activities: [],
   distanceEntries: [],
-  messages: []
+  messages: [],
+  messageReactions: []
 };
 
 const mimeTypes = {
@@ -93,6 +95,9 @@ function normalizeState(state) {
       : [],
     messages: Array.isArray(source.messages)
       ? source.messages.map(normalizeMessage)
+      : [],
+    messageReactions: Array.isArray(source.messageReactions)
+      ? source.messageReactions.map(normalizeMessageReaction)
       : []
   };
 }
@@ -168,12 +173,22 @@ function normalizeMessage(message) {
   return {
     id: cleanString(message.id) || crypto.randomUUID(),
     authorName: cleanString(message.authorName),
+    parentMessageId: cleanString(message.parentMessageId) || null,
     teamId: cleanString(message.teamId) || null,
     teamName: cleanString(message.teamName),
     messageText: cleanMessageText(message.messageText),
     imageData: cleanString(message.imageData),
     imageName: cleanString(message.imageName),
     createdAt: cleanString(message.createdAt) || new Date().toISOString()
+  };
+}
+
+function normalizeMessageReaction(reaction) {
+  return {
+    id: cleanString(reaction.id) || crypto.randomUUID(),
+    messageId: cleanString(reaction.messageId),
+    emoji: cleanString(reaction.emoji),
+    createdAt: cleanString(reaction.createdAt) || new Date().toISOString()
   };
 }
 
@@ -196,11 +211,28 @@ function getPublicState(state) {
     distanceEntries: [...state.distanceEntries].sort((a, b) =>
       b.createdAt.localeCompare(a.createdAt)
     ),
-    messages: [...(state.messages || [])].sort((a, b) =>
-      b.createdAt.localeCompare(a.createdAt)
-    ),
+    messages: buildPublicMessages(state),
     totals: buildTotals({ ...state, teams })
   };
+}
+
+function buildPublicMessages(state) {
+  const reactionCounts = new Map();
+
+  for (const reaction of state.messageReactions || []) {
+    if (!MESSAGE_REACTION_EMOJIS.includes(reaction.emoji)) continue;
+
+    const counts = reactionCounts.get(reaction.messageId) || {};
+    counts[reaction.emoji] = (counts[reaction.emoji] || 0) + 1;
+    reactionCounts.set(reaction.messageId, counts);
+  }
+
+  return [...(state.messages || [])]
+    .map((message) => ({
+      ...message,
+      reactionCounts: reactionCounts.get(message.id) || {}
+    }))
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
 function buildTotals(state) {
@@ -291,6 +323,16 @@ function validateMessageImage(imageData) {
   }
 
   return cleanData;
+}
+
+function validateMessageReaction(value) {
+  const emoji = cleanString(value);
+
+  if (!MESSAGE_REACTION_EMOJIS.includes(emoji)) {
+    throw validationError("Please choose a supported reaction.");
+  }
+
+  return emoji;
 }
 
 function nameKey(value) {
@@ -970,6 +1012,7 @@ async function handleApi(request, response, url) {
   if (request.method === "POST" && url.pathname === "/api/messages") {
     const body = await readJsonBody(request);
     const authorName = cleanString(body.authorName);
+    const parentMessageId = cleanString(body.parentMessageId);
     const teamId = cleanString(body.teamId);
     const messageText = cleanMessageText(body.messageText);
     const imageData = validateMessageImage(body.imageData);
@@ -988,17 +1031,50 @@ async function handleApi(request, response, url) {
     }
 
     const { state } = await updateState((draft) => {
+      const parentMessage = parentMessageId
+        ? draft.messages.find((entry) => entry.id === parentMessageId)
+        : null;
       const team = teamId ? draft.teams.find((entry) => entry.id === teamId) : null;
+
+      if (parentMessageId && !parentMessage) {
+        throw validationError("The post you are replying to was not found.", 404);
+      }
 
       draft.messages = draft.messages || [];
       draft.messages.push({
         id: crypto.randomUUID(),
         authorName,
+        parentMessageId: parentMessage?.id || null,
         teamId: team?.id || null,
         teamName: team?.name || "",
         messageText,
         imageData,
         imageName,
+        createdAt: new Date().toISOString()
+      });
+    });
+
+    sendJson(response, getPublicState(state), 201);
+    return;
+  }
+
+  const reactionMatch = url.pathname.match(/^\/api\/messages\/([^/]+)\/reactions$/);
+
+  if (request.method === "POST" && reactionMatch) {
+    const messageId = decodeURIComponent(reactionMatch[1]);
+    const body = await readJsonBody(request);
+    const emoji = validateMessageReaction(body.emoji);
+
+    const { state } = await updateState((draft) => {
+      if (!draft.messages.some((entry) => entry.id === messageId)) {
+        throw validationError("Message was not found.", 404);
+      }
+
+      draft.messageReactions = draft.messageReactions || [];
+      draft.messageReactions.push({
+        id: crypto.randomUUID(),
+        messageId,
+        emoji,
         createdAt: new Date().toISOString()
       });
     });

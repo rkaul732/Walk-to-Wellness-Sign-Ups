@@ -804,6 +804,74 @@ select:disabled {
   border-radius: 8px;
 }
 
+.message-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.reaction-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.reaction-button,
+.reply-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 36px;
+  padding: 0 10px;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.reaction-button {
+  gap: 6px;
+  min-width: 42px;
+}
+
+.reaction-button:hover,
+.reply-button:hover {
+  border-color: var(--pink);
+}
+
+.reaction-button strong {
+  color: var(--blue);
+  font-size: 0.85rem;
+}
+
+.reply-button {
+  color: var(--blue);
+}
+
+.reply-form {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.message-replies {
+  display: grid;
+  gap: 12px;
+  padding-left: clamp(12px, 3vw, 28px);
+  border-left: 3px solid var(--button);
+}
+
+.reply-card {
+  background: var(--surface);
+}
+
 .live-feed-shell {
   max-width: 1220px;
 }

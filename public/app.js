@@ -17,6 +17,7 @@ const KICKOFF_MESSAGE = "Kickoff on July 6!";
 const MESSAGE_IMAGE_DATA_LIMIT = 1_600_000;
 const MESSAGE_IMAGE_MAX_FILE_SIZE = 8 * 1024 * 1024;
 const MESSAGE_IMAGE_MAX_SIDE = 1200;
+const MESSAGE_REACTION_OPTIONS = ["👍", "❤️", "👏", "🎉", "😊", "💪"];
 const weekColors = [
   "#9ec9e8",
   "#7fb3dc",
@@ -46,6 +47,7 @@ let selectedDistanceTeamId = "";
 let selectedDistanceMemberId = "";
 let selectedDistanceMode = "daily";
 let selectedDistanceWeek = getDefaultChallengeWeek();
+let replyingToMessageId = null;
 let adminSession = { authenticated: false, configured: true, username: null };
 let toastTimer = null;
 
@@ -468,6 +470,7 @@ function renderStepSubmissionPage() {
 
 function renderMessagesPage() {
   const messages = state.messages || [];
+  const threads = getMessageThreads();
 
   app.innerHTML = `
     <section class="page content-band messages-page">
@@ -515,12 +518,12 @@ function renderMessagesPage() {
           <div class="section-header compact-header">
             <div>
               <h2 id="message-wall-title">Encouragement Wall</h2>
-              <p>${messages.length ? `${messages.length} ${pluralize("post", messages.length)}` : "No messages yet."}</p>
+              <p>${messages.length ? `${messages.length} ${pluralize("message", messages.length)}` : "No messages yet."}</p>
             </div>
           </div>
           ${
-            messages.length
-              ? `<div class="message-wall">${messages.map(renderMessageCard).join("")}</div>`
+            threads.length
+              ? `<div class="message-wall">${threads.map((message) => renderMessageCard(message)).join("")}</div>`
               : `<p class="muted">Be the first to cheer on the Walk to Wellness teams.</p>`
           }
         </section>
@@ -529,9 +532,9 @@ function renderMessagesPage() {
   `;
 }
 
-function renderMessageCard(message) {
+function renderMessageCard(message, depth = 0) {
   return `
-    <article class="message-card">
+    <article class="message-card ${depth ? "reply-card" : ""}" style="--reply-depth:${Math.min(depth, 4)}">
       <div class="message-card-header">
         <div>
           <h3>${escapeHtml(message.authorName)}</h3>
@@ -545,8 +548,83 @@ function renderMessageCard(message) {
           ? `<img class="message-photo" src="${escapeAttribute(message.imageData)}" alt="${escapeAttribute(message.imageName || "Walk photo")}">`
           : ""
       }
+      <div class="message-actions">
+        <div class="reaction-bar" aria-label="Reactions">
+          ${MESSAGE_REACTION_OPTIONS.map((emoji) => renderReactionButton(message, emoji)).join("")}
+        </div>
+        <button class="reply-button" type="button" data-reply-toggle="${escapeAttribute(message.id)}">Reply</button>
+      </div>
+      ${replyingToMessageId === message.id ? renderReplyForm(message) : ""}
+      ${
+        message.replies?.length
+          ? `<div class="message-replies">${message.replies.map((reply) => renderMessageCard(reply, depth + 1)).join("")}</div>`
+          : ""
+      }
     </article>
   `;
+}
+
+function renderReactionButton(message, emoji) {
+  const count = Number(message.reactionCounts?.[emoji]) || 0;
+
+  return `
+    <button class="reaction-button" type="button" data-message-reaction="${escapeAttribute(message.id)}" data-emoji="${escapeAttribute(emoji)}" aria-label="${escapeAttribute(`React with ${emoji}`)}">
+      <span>${escapeHtml(emoji)}</span>
+      ${count ? `<strong>${formatNumber(count)}</strong>` : ""}
+    </button>
+  `;
+}
+
+function renderReplyForm(message) {
+  return `
+    <form class="reply-form" data-action="message-reply" data-parent-message-id="${escapeAttribute(message.id)}">
+      <div class="form-grid two-column">
+        <label>
+          Name
+          <input name="authorName" autocomplete="name" maxlength="80" required>
+        </label>
+      </div>
+      <label>
+        Reply
+        <textarea name="messageText" maxlength="600" placeholder="Write a reply..." required></textarea>
+      </label>
+      <div class="button-row">
+        <button class="primary-button" type="submit">Post Reply</button>
+      </div>
+    </form>
+  `;
+}
+
+function getMessageThreads() {
+  const byId = new Map();
+  const roots = [];
+
+  for (const message of state.messages || []) {
+    byId.set(message.id, {
+      ...message,
+      replies: []
+    });
+  }
+
+  for (const message of byId.values()) {
+    const parent = message.parentMessageId ? byId.get(message.parentMessageId) : null;
+
+    if (parent) {
+      parent.replies.push(message);
+    } else {
+      roots.push(message);
+    }
+  }
+
+  const sortReplies = (messages) => {
+    messages.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    messages.forEach((message) => sortReplies(message.replies));
+  };
+
+  roots.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  roots.forEach((message) => sortReplies(message.replies));
+
+  return roots;
 }
 
 function renderLiveFeedPage() {
@@ -931,6 +1009,12 @@ async function handleSubmit(event) {
       showToast("Message posted.");
     }
 
+    if (action === "message-reply") {
+      await submitMessage(form);
+      replyingToMessageId = null;
+      showToast("Reply posted.");
+    }
+
     if (action === "admin-login") {
       adminSession = await postJson("/api/admin/login", formData);
       showToast("Admin login successful.");
@@ -1020,6 +1104,7 @@ async function submitMessage(form) {
   const walkPhoto = formData.get("walkPhoto");
   const body = {
     authorName: formData.get("authorName"),
+    parentMessageId: form.dataset.parentMessageId || "",
     teamId: formData.get("teamId"),
     messageText: formData.get("messageText"),
     imageData: "",
@@ -1126,9 +1211,24 @@ function showDuplicateDistanceModal(duplicate) {
 
 function handleClick(event) {
   const toggle = event.target.closest("[data-team-toggle]");
+  const replyToggle = event.target.closest("[data-reply-toggle]");
+  const reactionButton = event.target.closest("[data-message-reaction]");
   const logoutButton = event.target.closest("[data-admin-logout]");
   const deleteTeamButton = event.target.closest("[data-admin-delete-team]");
   const deleteMemberButton = event.target.closest("[data-admin-delete-member]");
+
+  if (reactionButton) {
+    handleMessageReaction(reactionButton.dataset.messageReaction, reactionButton.dataset.emoji);
+    return;
+  }
+
+  if (replyToggle) {
+    replyingToMessageId = replyingToMessageId === replyToggle.dataset.replyToggle
+      ? null
+      : replyToggle.dataset.replyToggle;
+    render();
+    return;
+  }
 
   if (logoutButton) {
     handleAdminLogout();
@@ -1149,6 +1249,16 @@ function handleClick(event) {
 
   expandedTeamId = expandedTeamId === toggle.dataset.teamToggle ? null : toggle.dataset.teamToggle;
   render();
+}
+
+async function handleMessageReaction(messageId, emoji) {
+  try {
+    await postJson(`/api/messages/${encodeURIComponent(messageId)}/reactions`, { emoji });
+    showToast("Reaction added.");
+    render();
+  } catch (error) {
+    showToast(error.message || "Something went wrong.", "error");
+  }
 }
 
 async function handleAdminLogout() {
