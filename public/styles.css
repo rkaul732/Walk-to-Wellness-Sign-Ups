@@ -1062,6 +1062,76 @@ select:disabled {
   margin-top: 24px;
 }
 
+.kickoff-modal-backdrop {
+  z-index: 55;
+}
+
+.kickoff-modal {
+  position: relative;
+  width: min(570px, 100%);
+  padding: clamp(26px, 5vw, 40px);
+  background: var(--soft-white);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+}
+
+.kickoff-modal-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: inline-grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  color: var(--ink);
+  background: var(--button-alt);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: 1.35rem;
+  font-weight: 900;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.kickoff-modal-close:hover,
+.kickoff-modal-close:focus-visible {
+  border-color: var(--blue);
+  outline: 3px solid rgba(79, 164, 216, 0.22);
+}
+
+.kickoff-modal h2 {
+  max-width: 480px;
+  margin: 8px 0 14px;
+  color: var(--ink);
+  font-size: clamp(1.75rem, 4vw, 2.45rem);
+  line-height: 1.04;
+}
+
+.kickoff-modal p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 1.05rem;
+  line-height: 1.6;
+}
+
+.kickoff-modal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 24px 0 14px;
+}
+
+.kickoff-modal-actions a {
+  flex: 1 1 150px;
+}
+
+.kickoff-modal-subtext {
+  color: #747b85;
+  font-size: 0.88rem;
+}
+
 .toast {
   position: fixed;
   right: 18px;

@@ -18,6 +18,7 @@ const MESSAGE_IMAGE_DATA_LIMIT = 1_600_000;
 const MESSAGE_IMAGE_MAX_FILE_SIZE = 8 * 1024 * 1024;
 const MESSAGE_IMAGE_MAX_SIDE = 1200;
 const MESSAGE_REACTION_OPTIONS = ["👍", "❤️", "👏", "🎉", "😊", "💪"];
+const KICKOFF_MODAL_STORAGE_KEY = "walkToWellnessKickoffDismissed";
 const weekColors = [
   "#9ec9e8",
   "#7fb3dc",
@@ -56,12 +57,14 @@ window.addEventListener("hashchange", render);
 document.addEventListener("submit", handleSubmit);
 document.addEventListener("click", handleClick);
 document.addEventListener("change", handleChange);
+document.addEventListener("keydown", handleKeydown);
 
 async function init() {
   renderLoading();
   await refreshState();
   await refreshAdminSession();
   render();
+  showKickoffModal();
 }
 
 async function refreshState() {
@@ -1209,13 +1212,71 @@ function showDuplicateDistanceModal(duplicate) {
   });
 }
 
+function showKickoffModal() {
+  if (isKickoffModalDismissed() || document.querySelector("[data-kickoff-modal]")) {
+    return;
+  }
+
+  const backdrop = document.createElement("div");
+  backdrop.className = "modal-backdrop kickoff-modal-backdrop";
+  backdrop.dataset.kickoffModal = "true";
+  backdrop.innerHTML = `
+    <section class="kickoff-modal" role="dialog" aria-modal="true" aria-labelledby="kickoff-modal-title">
+      <button class="kickoff-modal-close" type="button" aria-label="Close announcement" data-kickoff-close>&times;</button>
+      <p class="eyebrow">Walk to Wellness</p>
+      <h2 id="kickoff-modal-title">The Walk to Wellness Challenge Kicks Off Today!</h2>
+      <p>Not a member of a team yet? No worries! You're welcome to join at any point during the competition.</p>
+      <div class="kickoff-modal-actions">
+        <a class="secondary-button" href="#register" data-kickoff-link>Check It Out</a>
+        <a class="primary-button" href="#create-team" data-kickoff-link>Create a Team</a>
+        <a class="secondary-button" href="#join-team" data-kickoff-link>Join a Team</a>
+      </div>
+      <p class="kickoff-modal-subtext">Contact Rebecca Kaul for Extra Info</p>
+    </section>
+  `;
+
+  document.body.append(backdrop);
+  window.setTimeout(() => {
+    backdrop.querySelector("[data-kickoff-close]")?.focus();
+  }, 0);
+}
+
+function dismissKickoffModal() {
+  setKickoffModalDismissed();
+  document.querySelector("[data-kickoff-modal]")?.remove();
+}
+
+function isKickoffModalDismissed() {
+  try {
+    return sessionStorage.getItem(KICKOFF_MODAL_STORAGE_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
+
+function setKickoffModalDismissed() {
+  try {
+    sessionStorage.setItem(KICKOFF_MODAL_STORAGE_KEY, "true");
+  } catch {
+    // Ignore storage errors so the close button still works.
+  }
+}
+
 function handleClick(event) {
+  const kickoffCloseButton = event.target.closest("[data-kickoff-close]");
+  const kickoffLink = event.target.closest("[data-kickoff-link]");
+  const kickoffBackdrop = event.target.matches("[data-kickoff-modal]") ? event.target : null;
   const toggle = event.target.closest("[data-team-toggle]");
   const replyToggle = event.target.closest("[data-reply-toggle]");
   const reactionButton = event.target.closest("[data-message-reaction]");
   const logoutButton = event.target.closest("[data-admin-logout]");
   const deleteTeamButton = event.target.closest("[data-admin-delete-team]");
   const deleteMemberButton = event.target.closest("[data-admin-delete-member]");
+
+  if (kickoffCloseButton || kickoffLink || kickoffBackdrop) {
+    dismissKickoffModal();
+    return;
+  }
 
   if (reactionButton) {
     handleMessageReaction(reactionButton.dataset.messageReaction, reactionButton.dataset.emoji);
@@ -1249,6 +1310,12 @@ function handleClick(event) {
 
   expandedTeamId = expandedTeamId === toggle.dataset.teamToggle ? null : toggle.dataset.teamToggle;
   render();
+}
+
+function handleKeydown(event) {
+  if (event.key === "Escape" && document.querySelector("[data-kickoff-modal]")) {
+    dismissKickoffModal();
+  }
 }
 
 async function handleMessageReaction(messageId, emoji) {
