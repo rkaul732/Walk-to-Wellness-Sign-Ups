@@ -760,7 +760,7 @@ select:disabled {
   display: grid;
   gap: 14px;
   padding: 18px;
-  background: var(--soft-white);
+  background: #ffffff;
   border: 1px solid var(--line);
   border-radius: 8px;
 }
@@ -1037,7 +1037,7 @@ select:disabled {
 .choice-modal {
   width: min(520px, 100%);
   padding: clamp(22px, 4vw, 34px);
-  background: var(--soft-white);
+  background: #ffffff;
   border: 1px solid var(--line);
   border-radius: 8px;
   box-shadow: var(--shadow);
@@ -1070,7 +1070,7 @@ select:disabled {
   position: relative;
   width: min(570px, 100%);
   padding: clamp(26px, 5vw, 40px);
-  background: var(--soft-white);
+  background: #ffffff;
   border: 1px solid var(--line);
   border-radius: 8px;
   box-shadow: var(--shadow);
