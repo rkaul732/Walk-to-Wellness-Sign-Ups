@@ -707,6 +707,7 @@ function renderAdminLogin() {
 
 function renderAdminDashboard() {
   return `
+    ${renderAdminMileageEditor()}
     <section class="panel admin-dashboard" aria-labelledby="admin-dashboard-title">
       <div class="section-header compact-header">
         <div>
@@ -720,6 +721,79 @@ function renderAdminDashboard() {
           : renderNoTeams()
       }
     </section>
+  `;
+}
+
+function renderAdminMileageEditor() {
+  const memberOptions = getAdminMemberOptions();
+  const dayOptions = getChallengeDayOptions();
+  const defaultDate = getDefaultAdminMileageDate(dayOptions);
+  const dailyRows = getAdminDailyMileageRows();
+
+  return `
+    <section class="panel admin-mileage-panel" aria-labelledby="admin-mileage-title">
+      <div class="section-header compact-header">
+        <div>
+          <h2 id="admin-mileage-title">Edit Miles</h2>
+          <p>Correct a team member's miles for a specific date. Set miles to 0 to remove that date.</p>
+        </div>
+      </div>
+      ${
+        memberOptions.length
+          ? `<form class="admin-mileage-form" data-action="admin-edit-mileage">
+              <label>
+                Team Member
+                <select name="memberId" required>
+                  ${memberOptions
+                    .map((option) => `<option value="${escapeAttribute(option.memberId)}">${escapeHtml(option.memberName)} - ${escapeHtml(option.teamName)}</option>`)
+                    .join("")}
+                </select>
+              </label>
+              <label>
+                Date
+                <select name="activityDate" required>
+                  ${dayOptions
+                    .map((day) => `<option value="${escapeAttribute(day.isoDate)}" ${day.isoDate === defaultDate ? "selected" : ""}>${escapeHtml(day.dateLabel)} (${escapeHtml(day.dayName)})</option>`)
+                    .join("")}
+                </select>
+              </label>
+              <label>
+                Correct Miles
+                <input name="miles" inputmode="decimal" placeholder="0" required data-mile-input>
+              </label>
+              <button class="primary-button" type="submit">Save Miles</button>
+            </form>`
+          : `<p class="muted small">Add team members before editing mileage.</p>`
+      }
+      ${
+        dailyRows.length
+          ? `<div class="admin-mileage-list" aria-label="Existing daily mileage entries">
+              <h3>Existing Daily Entries</h3>
+              ${dailyRows.slice(0, 80).map(renderAdminMileageRow).join("")}
+              ${dailyRows.length > 80 ? `<p class="muted small">Showing the latest 80 daily entries.</p>` : ""}
+            </div>`
+          : `<p class="muted small">No daily miles have been entered yet.</p>`
+      }
+    </section>
+  `;
+}
+
+function renderAdminMileageRow(row) {
+  return `
+    <form class="admin-mileage-row" data-action="admin-edit-mileage">
+      <input type="hidden" name="memberId" value="${escapeAttribute(row.memberId)}">
+      <input type="hidden" name="activityDate" value="${escapeAttribute(row.isoDate)}">
+      <div class="admin-mileage-row-meta">
+        <strong>${escapeHtml(row.memberName)}</strong>
+        <span>${escapeHtml(row.teamName)}</span>
+        <span>${escapeHtml(row.dateLabel)} (${escapeHtml(row.dayName)})</span>
+      </div>
+      <label>
+        Correct Miles
+        <input name="miles" inputmode="decimal" value="${escapeAttribute(formatMilesInput(row.miles))}" required data-mile-input>
+      </label>
+      <button class="secondary-button" type="submit">Save Miles</button>
+    </form>
   `;
 }
 
@@ -776,6 +850,82 @@ function renderAdminMemberRow(team, member) {
       <button class="danger-button" type="button" data-admin-delete-member="${escapeAttribute(member.id)}" data-team-id="${escapeAttribute(team.id)}">Remove</button>
     </div>
   `;
+}
+
+function getAdminMemberOptions() {
+  return state.teams.flatMap((team) =>
+    team.members.map((member) => ({
+      teamId: team.id,
+      teamName: team.name,
+      memberId: member.id,
+      memberName: member.fullName
+    }))
+  ).sort((a, b) => a.memberName.localeCompare(b.memberName) || a.teamName.localeCompare(b.teamName));
+}
+
+function getChallengeDayOptions() {
+  return getChallengeWeeks().flatMap((week) =>
+    week.days.map((day) => ({
+      ...day,
+      weekNumber: week.weekNumber
+    }))
+  );
+}
+
+function getDefaultAdminMileageDate(dayOptions) {
+  const today = toISODate(new Date());
+  return dayOptions.some((day) => day.isoDate === today)
+    ? today
+    : dayOptions[0]?.isoDate || "";
+}
+
+function getAdminDailyMileageRows() {
+  const members = new Map();
+  const rows = new Map();
+
+  for (const team of state.teams) {
+    for (const member of team.members) {
+      members.set(member.id, {
+        teamName: team.name,
+        memberName: member.fullName
+      });
+    }
+  }
+
+  for (const entry of state.distanceEntries || []) {
+    if (entry.entryMode !== "daily") continue;
+
+    for (const day of entry.dailyMiles || []) {
+      const isoDate = cleanString(day.isoDate);
+      const miles = Number(day.miles) || 0;
+
+      if (!entry.memberId || !isoDate || miles <= 0) continue;
+
+      const member = members.get(entry.memberId) || {
+        teamName: entry.teamName || "Unknown Team",
+        memberName: entry.memberName || "Unknown Member"
+      };
+      const key = `${entry.memberId}:${isoDate}`;
+      const existing = rows.get(key) || {
+        memberId: entry.memberId,
+        memberName: member.memberName,
+        teamName: member.teamName,
+        isoDate,
+        dayName: cleanString(day.dayName),
+        dateLabel: cleanString(day.dateLabel) || isoDate,
+        miles: 0
+      };
+
+      existing.miles = roundMiles(existing.miles + miles);
+      rows.set(key, existing);
+    }
+  }
+
+  return [...rows.values()].sort((a, b) =>
+    b.isoDate.localeCompare(a.isoDate) ||
+    a.memberName.localeCompare(b.memberName) ||
+    a.teamName.localeCompare(b.teamName)
+  );
 }
 
 function renderStat(label, value) {
@@ -1046,6 +1196,19 @@ async function handleSubmit(event) {
         body: { fullName: formData.fullName }
       });
       showToast("Member updated.");
+    }
+
+    if (action === "admin-edit-mileage") {
+      assertMiles(formData.miles, "correct miles");
+      await requestJson("/api/admin/mileage", {
+        method: "PATCH",
+        body: {
+          memberId: formData.memberId,
+          activityDate: formData.activityDate,
+          miles: Number(formData.miles)
+        }
+      });
+      showToast("Miles updated.");
     }
 
     await refreshState();
@@ -1642,6 +1805,10 @@ function formatNumber(value) {
   return Number(value || 0).toLocaleString(undefined, {
     maximumFractionDigits: 2
   });
+}
+
+function formatMilesInput(value) {
+  return String(roundMiles(value));
 }
 
 function formatShortDate(date) {

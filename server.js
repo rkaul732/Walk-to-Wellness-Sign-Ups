@@ -566,6 +566,78 @@ function deleteMember(state, team, memberId) {
   state.distanceEntries = state.distanceEntries.filter((entry) => entry.memberId !== memberId);
 }
 
+function editDailyMileage(state, memberId, activityDate, miles) {
+  const cleanMemberId = cleanString(memberId);
+  const cleanDate = cleanString(activityDate);
+  const correctMiles = roundMiles(validateMiles(miles, "correct miles"));
+  const correctionDay = getChallengeDayByDate(cleanDate);
+  const team = state.teams.find((entry) =>
+    entry.members.some((member) => member.id === cleanMemberId)
+  );
+
+  if (!team) {
+    throw validationError("Team member was not found.", 404);
+  }
+
+  if (!correctionDay) {
+    throw validationError("Please choose a date within the challenge.");
+  }
+
+  const member = findMemberById(team, cleanMemberId);
+  const weekNumber = correctionDay.weekNumber;
+  const dayKey = getDistanceDayKey(weekNumber, correctionDay);
+  const memberWeekEntries = state.distanceEntries.filter(
+    (entry) => entry.memberId === cleanMemberId && Number(entry.weekNumber) === weekNumber
+  );
+
+  if (memberWeekEntries.some((entry) => entry.entryMode === "weekly" && Number(entry.totalMiles) > 0)) {
+    throw validationError("This member has a weekly total for that week. Remove the weekly total before editing a single date.");
+  }
+
+  state.distanceEntries = state.distanceEntries.flatMap((entry) => {
+    if (entry.memberId !== cleanMemberId || Number(entry.weekNumber) !== weekNumber || entry.entryMode !== "daily") {
+      return [entry];
+    }
+
+    const remainingDailyMiles = (entry.dailyMiles || []).filter(
+      (day) => getDistanceDayKey(entry.weekNumber, day) !== dayKey
+    );
+    const totalMiles = roundMiles(
+      remainingDailyMiles.reduce((total, day) => total + (Number(day.miles) || 0), 0)
+    );
+
+    return totalMiles > 0
+      ? [{
+          ...entry,
+          dailyMiles: remainingDailyMiles,
+          totalMiles
+        }]
+      : [];
+  });
+
+  if (correctMiles > 0) {
+    state.distanceEntries.push({
+      id: crypto.randomUUID(),
+      teamId: team.id,
+      teamName: team.name,
+      memberId: cleanMemberId,
+      memberName: member.fullName,
+      entryMode: "daily",
+      weekNumber,
+      dailyMiles: [{
+        dayIndex: correctionDay.dayIndex,
+        dayName: correctionDay.dayName,
+        isoDate: correctionDay.isoDate,
+        dateLabel: correctionDay.dateLabel,
+        miles: correctMiles
+      }],
+      weeklyMiles: 0,
+      totalMiles: correctMiles,
+      createdAt: new Date().toISOString()
+    });
+  }
+}
+
 function findTeamByMemberName(state, participantName) {
   const normalized = nameKey(participantName);
 
@@ -712,6 +784,21 @@ function getChallengeDay(weekNumber, dayIndex) {
   return getChallengeWeeks()
     .find((entry) => entry.weekNumber === Number(weekNumber))
     ?.days.find((day) => day.dayIndex === Number(dayIndex)) || null;
+}
+
+function getChallengeDayByDate(isoDate) {
+  for (const week of getChallengeWeeks()) {
+    const day = week.days.find((entry) => entry.isoDate === isoDate);
+
+    if (day) {
+      return {
+        ...day,
+        weekNumber: week.weekNumber
+      };
+    }
+  }
+
+  return null;
 }
 
 function getChallengeWeeks() {
@@ -869,6 +956,16 @@ async function handleApi(request, response, url) {
     const adminTeamMatch = url.pathname.match(/^\/api\/admin\/teams\/([^/]+)$/);
     const adminMemberMatch = url.pathname.match(/^\/api\/admin\/teams\/([^/]+)\/members\/([^/]+)$/);
     const adminTeamMemberCollectionMatch = url.pathname.match(/^\/api\/admin\/teams\/([^/]+)\/members$/);
+
+    if (url.pathname === "/api/admin/mileage" && request.method === "PATCH") {
+      const body = await readJsonBody(request);
+      const { state } = await updateState((draft) => {
+        editDailyMileage(draft, body.memberId, body.activityDate, body.miles);
+      });
+
+      sendJson(response, getPublicState(state));
+      return;
+    }
 
     if (adminTeamMatch && request.method === "PATCH") {
       const teamId = decodeURIComponent(adminTeamMatch[1]);

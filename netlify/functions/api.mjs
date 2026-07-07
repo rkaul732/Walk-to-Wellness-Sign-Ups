@@ -64,6 +64,61 @@ export async function handler(event) {
       const adminMemberMatch = pathname.match(/^\/api\/admin\/teams\/([^/]+)\/members\/([^/]+)$/);
       const adminTeamMemberCollectionMatch = pathname.match(/^\/api\/admin\/teams\/([^/]+)\/members$/);
 
+      if (pathname === "/api/admin/mileage" && method === "PATCH") {
+        const body = readJson(event);
+        const memberId = cleanString(body.memberId);
+        const activityDate = cleanString(body.activityDate);
+        const correctMiles = roundMiles(validateMiles(body.miles, "correct miles"));
+        const correctionDay = getChallengeDayByDate(activityDate);
+        const currentState = await loadPublicState();
+        const team = currentState.teams.find((entry) =>
+          entry.members.some((member) => member.id === memberId)
+        );
+
+        if (!team) {
+          throw validationError("Team member was not found.", 404);
+        }
+
+        if (!correctionDay) {
+          throw validationError("Please choose a date within the challenge.");
+        }
+
+        const member = findMemberById(team, memberId);
+        const weekNumber = correctionDay.weekNumber;
+
+        await applySupabaseDailyMileageCorrection(
+          currentState.distanceEntries,
+          memberId,
+          weekNumber,
+          correctionDay
+        );
+
+        if (correctMiles > 0) {
+          await supabaseFetch("distance_entries", {
+            method: "POST",
+            body: JSON.stringify({
+              team_id: team.id,
+              team_name: team.name,
+              member_id: memberId,
+              member_name: member.fullName,
+              entry_mode: "daily",
+              week_number: weekNumber,
+              daily_miles: [{
+                dayIndex: correctionDay.dayIndex,
+                dayName: correctionDay.dayName,
+                isoDate: correctionDay.isoDate,
+                dateLabel: correctionDay.dateLabel,
+                miles: correctMiles
+              }],
+              weekly_miles: 0,
+              total_miles: correctMiles
+            })
+          });
+        }
+
+        return json(await loadPublicState());
+      }
+
       if (adminTeamMatch && method === "PATCH") {
         const teamId = decodeURIComponent(adminTeamMatch[1]);
         const body = readJson(event);
@@ -1034,6 +1089,29 @@ async function applySupabaseDistanceOverride(entries, memberId, entryMode, weekN
   }
 }
 
+async function applySupabaseDailyMileageCorrection(entries, memberId, weekNumber, correctionDay) {
+  const { deleteIds, patchEntries } = getDailyMileageCorrectionChanges(
+    entries,
+    memberId,
+    weekNumber,
+    correctionDay
+  );
+
+  for (const entryId of deleteIds) {
+    await supabaseFetch(`distance_entries?id=${eqParam(entryId)}`, { method: "DELETE" });
+  }
+
+  for (const entry of patchEntries) {
+    await supabaseFetch(`distance_entries?id=${eqParam(entry.id)}`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        daily_miles: entry.dailyMiles,
+        total_miles: entry.totalMiles
+      })
+    });
+  }
+}
+
 function getDistanceOverrideChanges(entries, memberId, entryMode, weekNumber, dailyMiles) {
   const deleteIds = [];
   const patchEntries = [];
@@ -1081,6 +1159,44 @@ function getDistanceOverrideChanges(entries, memberId, entryMode, weekNumber, da
   return { deleteIds, patchEntries };
 }
 
+function getDailyMileageCorrectionChanges(entries, memberId, weekNumber, correctionDay) {
+  const deleteIds = [];
+  const patchEntries = [];
+  const dayKey = getDistanceDayKey(weekNumber, correctionDay);
+  const memberWeekEntries = (entries || []).filter(
+    (entry) => entry.memberId === memberId && Number(entry.weekNumber) === weekNumber
+  );
+
+  if (memberWeekEntries.some((entry) => entry.entryMode === "weekly" && Number(entry.totalMiles) > 0)) {
+    throw validationError("This member has a weekly total for that week. Remove the weekly total before editing a single date.");
+  }
+
+  for (const entry of memberWeekEntries) {
+    if (entry.entryMode !== "daily") {
+      continue;
+    }
+
+    const remainingDailyMiles = (entry.dailyMiles || []).filter(
+      (day) => getDistanceDayKey(entry.weekNumber, day) !== dayKey
+    );
+    const totalMiles = roundMiles(
+      remainingDailyMiles.reduce((total, day) => total + (Number(day.miles) || 0), 0)
+    );
+
+    if (totalMiles > 0) {
+      patchEntries.push({
+        ...entry,
+        dailyMiles: remainingDailyMiles,
+        totalMiles
+      });
+    } else {
+      deleteIds.push(entry.id);
+    }
+  }
+
+  return { deleteIds, patchEntries };
+}
+
 function getDistanceDayKey(weekNumber, day) {
   return cleanString(day.isoDate) || `${Number(weekNumber) || 0}:${Number(day.dayIndex) || 0}`;
 }
@@ -1098,6 +1214,21 @@ function getChallengeDay(weekNumber, dayIndex) {
   return getChallengeWeeks()
     .find((entry) => entry.weekNumber === Number(weekNumber))
     ?.days.find((day) => day.dayIndex === Number(dayIndex)) || null;
+}
+
+function getChallengeDayByDate(isoDate) {
+  for (const week of getChallengeWeeks()) {
+    const day = week.days.find((entry) => entry.isoDate === isoDate);
+
+    if (day) {
+      return {
+        ...day,
+        weekNumber: week.weekNumber
+      };
+    }
+  }
+
+  return null;
 }
 
 function getChallengeWeeks() {
