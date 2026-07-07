@@ -365,6 +365,7 @@ function renderDailyDistanceInputs(week) {
   return `
     <fieldset class="daily-calendar">
       <legend>Daily Totals for Week ${week.weekNumber}</legend>
+      <p class="muted small daily-entry-note">Enter miles for one day or multiple days. Leave days blank if you are not submitting them right now.</p>
       <div class="day-grid">
         ${week.days
           .map(
@@ -372,7 +373,7 @@ function renderDailyDistanceInputs(week) {
               <label class="day-entry">
                 <span>${escapeHtml(day.dayName)}</span>
                 <small>${escapeHtml(day.dateLabel)}</small>
-                <input name="daily_${day.dayIndex}" inputmode="decimal" placeholder="0" required data-mile-input>
+                <input name="daily_${day.dayIndex}" inputmode="decimal" placeholder="0" data-mile-input>
               </label>`
           )
           .join("")}
@@ -1069,7 +1070,12 @@ async function submitDistance(form, formData) {
     const dailyMiles = getChallengeWeeks()
       .find((week) => week.weekNumber === body.weekNumber)
       .days.map((day) => {
-        const value = formData[`daily_${day.dayIndex}`];
+        const value = cleanString(formData[`daily_${day.dayIndex}`]);
+
+        if (!value) {
+          return null;
+        }
+
         assertMiles(value, `${day.dayName} miles`);
         return {
           dayIndex: day.dayIndex,
@@ -1079,7 +1085,11 @@ async function submitDistance(form, formData) {
           miles: Number(value)
         };
       })
-      .filter((day) => day.miles > 0);
+      .filter((day) => day && day.miles > 0);
+
+    if (!dailyMiles.length) {
+      throw new Error("Please enter miles greater than zero for at least one day.");
+    }
 
     body.dailyMiles = dailyMiles;
   } else {

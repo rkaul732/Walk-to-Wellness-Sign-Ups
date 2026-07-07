@@ -652,6 +652,10 @@ select:disabled {
   margin-bottom: 12px;
 }
 
+.daily-entry-note {
+  margin: -4px 0 14px;
+}
+
 .day-grid {
   display: grid;
   grid-template-columns: repeat(7, minmax(90px, 1fr));
