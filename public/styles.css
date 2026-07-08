@@ -898,6 +898,8 @@ select:disabled {
 .mention-option {
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   width: 100%;
   min-height: 38px;
   padding: 8px 10px;
@@ -907,6 +909,12 @@ select:disabled {
   border-radius: 6px;
   font-weight: 900;
   cursor: pointer;
+}
+
+.mention-option small {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
 }
 
 .mention-option:hover,

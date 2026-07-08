@@ -32,7 +32,8 @@ export async function handler(event) {
 
       return json({
         people: buildMentionablePeople(currentState, contacts),
-        source: contacts.length ? "contacts" : "state"
+        source: contacts.length ? "contacts" : "state",
+        everyoneAvailable: contacts.length > 0
       });
     }
 

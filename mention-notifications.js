@@ -2,7 +2,6 @@ import { readFile } from "node:fs/promises";
 
 const RESEND_ENDPOINT = "https://api.resend.com/emails";
 const DEFAULT_FROM_EMAIL = "Walk to Wellness System <noreply@bhhwalktowellness.com>";
-const EMAIL_BATCH_LIMIT = 50;
 
 export async function loadLocalParticipantContacts(logger = console) {
   try {
@@ -43,9 +42,14 @@ export function normalizeParticipantContacts(rows) {
 
 export function findMentionedContacts(messageText, contacts) {
   const text = String(messageText || "");
+  const normalizedContacts = normalizeParticipantContacts(contacts);
   const mentionedByEmail = new Map();
 
-  for (const contact of normalizeParticipantContacts(contacts)) {
+  if (isEveryoneMentioned(text)) {
+    return normalizedContacts;
+  }
+
+  for (const contact of normalizedContacts) {
     if (isMentioned(text, contact.fullName)) {
       mentionedByEmail.set(contact.email, contact);
     }
@@ -61,7 +65,7 @@ export async function sendMentionNotifications({
   siteUrl,
   logger = console
 }) {
-  const mentionedContacts = findMentionedContacts(messageText, contacts).slice(0, EMAIL_BATCH_LIMIT);
+  const mentionedContacts = findMentionedContacts(messageText, contacts);
 
   if (!mentionedContacts.length) {
     return { mentioned: 0, sent: 0, skipped: 0, errors: [] };
@@ -171,6 +175,10 @@ function isMentioned(text, fullName) {
   const namePattern = parts.map(escapeRegExp).join("\\s+");
   const pattern = new RegExp(`(^|[^\\p{L}\\p{N}_@])@${namePattern}(?=$|[^\\p{L}\\p{N}_-])`, "iu");
   return pattern.test(text);
+}
+
+function isEveryoneMentioned(text) {
+  return /(^|[^\p{L}\p{N}_@])@everyone(?=$|[^\p{L}\p{N}_-])/iu.test(String(text || ""));
 }
 
 function getMessageUrl(siteUrl) {

@@ -965,7 +965,8 @@ async function handleApi(request, response, url) {
 
     sendJson(response, {
       people: buildMentionablePeople(state, contacts),
-      source: contacts.length ? "contacts" : "state"
+      source: contacts.length ? "contacts" : "state",
+      everyoneAvailable: contacts.length > 0
     });
     return;
   }

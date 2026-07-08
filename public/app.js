@@ -21,6 +21,7 @@ const MESSAGE_IMAGE_MAX_SIDE = 1200;
 const MESSAGE_REACTION_OPTIONS = ["👍", "❤️", "👏", "🎉", "😊", "💪"];
 const KICKOFF_MODAL_STORAGE_KEY = "walkToWellnessKickoffDismissed";
 const MENTION_SUGGESTION_LIMIT = 8;
+const EVERYONE_MENTION = { fullName: "Everyone", isGroup: true };
 const weekColors = [
   "#9ec9e8",
   "#7fb3dc",
@@ -56,6 +57,7 @@ let replyingToMessageId = null;
 let adminSession = { authenticated: false, configured: true, username: null };
 let mentionablePeople = [];
 let mentionablePeopleUsesStateFallback = true;
+let everyoneMentionAvailable = false;
 let activeMention = null;
 let toastTimer = null;
 
@@ -114,9 +116,11 @@ async function refreshMentionablePeople() {
 
     mentionablePeople = normalizeMentionablePeople(payload.people);
     mentionablePeopleUsesStateFallback = payload.source !== "contacts";
+    everyoneMentionAvailable = payload.everyoneAvailable === true;
   } catch {
     mentionablePeople = getStateMentionablePeople();
     mentionablePeopleUsesStateFallback = true;
+    everyoneMentionAvailable = false;
   }
 }
 
@@ -1781,20 +1785,30 @@ function getActiveMention(input) {
 
 function getMentionMatches(query) {
   const cleanQuery = nameKey(query);
+  const matches = [];
 
-  if (!mentionablePeople.length) return [];
-
-  if (!cleanQuery) {
-    return mentionablePeople.slice(0, MENTION_SUGGESTION_LIMIT);
+  if (everyoneMentionAvailable && (!cleanQuery || "everyone".startsWith(cleanQuery))) {
+    matches.push(EVERYONE_MENTION);
   }
 
-  return mentionablePeople
+  if (!mentionablePeople.length) return matches;
+
+  if (!cleanQuery) {
+    return [
+      ...matches,
+      ...mentionablePeople.slice(0, MENTION_SUGGESTION_LIMIT - matches.length)
+    ];
+  }
+
+  matches.push(...mentionablePeople
     .filter((person) => {
       const personKey = nameKey(person.fullName);
       return personKey.includes(cleanQuery)
         || cleanQuery.split(" ").every((part) => personKey.split(" ").some((namePart) => namePart.startsWith(part)));
     })
-    .slice(0, MENTION_SUGGESTION_LIMIT);
+    .slice(0, MENTION_SUGGESTION_LIMIT - matches.length));
+
+  return matches;
 }
 
 function renderMentionPicker() {
@@ -1813,6 +1827,7 @@ function renderMentionPicker() {
         aria-selected="${index === activeMention.selectedIndex ? "true" : "false"}"
         data-mention-option="${index}">
         <span>@${escapeHtml(person.fullName)}</span>
+        ${person.isGroup ? `<small>All email contacts</small>` : ""}
       </button>
     `)
     .join("");
@@ -2321,7 +2336,7 @@ function formatDateTime(value) {
 
 function formatMessageText(value) {
   return escapeHtml(value || "")
-    .replace(/(^|[^\w@])(@[A-Za-z][A-Za-z'.-]+(?:\s+[A-Za-z][A-Za-z'.-]+)+)/g, '$1<span class="message-mention">$2</span>')
+    .replace(/(^|[^\w@])(@everyone|@[A-Za-z][A-Za-z'.-]+(?:\s+[A-Za-z][A-Za-z'.-]+)+)/gi, '$1<span class="message-mention">$2</span>')
     .replace(/\n/g, "<br>");
 }
 
