@@ -611,6 +611,60 @@ function deleteMember(state, team, memberId) {
   state.distanceEntries = state.distanceEntries.filter((entry) => entry.memberId !== memberId);
 }
 
+function deleteMessageThread(state, messageId) {
+  const messageIds = getMessageThreadIds(state.messages || [], messageId);
+
+  if (!messageIds.length) {
+    throw validationError("Message was not found.", 404);
+  }
+
+  const messageIdSet = new Set(messageIds);
+  state.messages = (state.messages || []).filter((entry) => !messageIdSet.has(entry.id));
+  state.messageReactions = (state.messageReactions || []).filter((entry) => !messageIdSet.has(entry.messageId));
+}
+
+function getMessageThreadIds(messages, messageId) {
+  const cleanId = cleanString(messageId);
+
+  if (!cleanId) return [];
+
+  const childrenByParent = new Map();
+  let found = false;
+
+  for (const message of messages || []) {
+    if (message.id === cleanId) {
+      found = true;
+    }
+
+    if (message.parentMessageId) {
+      const children = childrenByParent.get(message.parentMessageId) || [];
+      children.push(message);
+      childrenByParent.set(message.parentMessageId, children);
+    }
+  }
+
+  if (!found) return [];
+
+  const ids = [];
+  const seen = new Set();
+  const stack = [cleanId];
+
+  while (stack.length) {
+    const id = stack.pop();
+
+    if (!id || seen.has(id)) continue;
+
+    seen.add(id);
+    ids.push(id);
+
+    for (const child of childrenByParent.get(id) || []) {
+      stack.push(child.id);
+    }
+  }
+
+  return ids;
+}
+
 function editDailyMileage(state, memberId, activityDate, miles) {
   const cleanMemberId = cleanString(memberId);
   const cleanDate = cleanString(activityDate);
@@ -1013,11 +1067,22 @@ async function handleApi(request, response, url) {
     const adminTeamMatch = url.pathname.match(/^\/api\/admin\/teams\/([^/]+)$/);
     const adminMemberMatch = url.pathname.match(/^\/api\/admin\/teams\/([^/]+)\/members\/([^/]+)$/);
     const adminTeamMemberCollectionMatch = url.pathname.match(/^\/api\/admin\/teams\/([^/]+)\/members$/);
+    const adminMessageMatch = url.pathname.match(/^\/api\/admin\/messages\/([^/]+)$/);
 
     if (url.pathname === "/api/admin/mileage" && request.method === "PATCH") {
       const body = await readJsonBody(request);
       const { state } = await updateState((draft) => {
         editDailyMileage(draft, body.memberId, body.activityDate, body.miles);
+      });
+
+      sendJson(response, getPublicState(state));
+      return;
+    }
+
+    if (adminMessageMatch && request.method === "DELETE") {
+      const messageId = decodeURIComponent(adminMessageMatch[1]);
+      const { state } = await updateState((draft) => {
+        deleteMessageThread(draft, messageId);
       });
 
       sendJson(response, getPublicState(state));

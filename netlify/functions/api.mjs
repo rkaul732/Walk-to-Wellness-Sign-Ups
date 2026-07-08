@@ -80,6 +80,7 @@ export async function handler(event) {
       const adminTeamMatch = pathname.match(/^\/api\/admin\/teams\/([^/]+)$/);
       const adminMemberMatch = pathname.match(/^\/api\/admin\/teams\/([^/]+)\/members\/([^/]+)$/);
       const adminTeamMemberCollectionMatch = pathname.match(/^\/api\/admin\/teams\/([^/]+)\/members$/);
+      const adminMessageMatch = pathname.match(/^\/api\/admin\/messages\/([^/]+)$/);
 
       if (pathname === "/api/admin/mileage" && method === "PATCH") {
         const body = readJson(event);
@@ -131,6 +132,26 @@ export async function handler(event) {
               total_miles: correctMiles
             })
           });
+        }
+
+        return json(await loadPublicState());
+      }
+
+      if (adminMessageMatch && method === "DELETE") {
+        const messageId = decodeURIComponent(adminMessageMatch[1]);
+        const currentState = await loadPublicState();
+        const messageIds = getMessageThreadIds(currentState.messages, messageId);
+
+        if (!messageIds.length) {
+          throw validationError("Message was not found.", 404);
+        }
+
+        for (const id of messageIds) {
+          await supabaseFetch(`message_reactions?message_id=${eqParam(id)}`, { method: "DELETE" });
+        }
+
+        for (const id of [...messageIds].reverse()) {
+          await supabaseFetch(`messages?id=${eqParam(id)}`, { method: "DELETE" });
         }
 
         return json(await loadPublicState());
@@ -981,6 +1002,48 @@ function buildMentionablePeople(state, contacts = []) {
   }
 
   return [...people.values()].sort((a, b) => a.fullName.localeCompare(b.fullName));
+}
+
+function getMessageThreadIds(messages, messageId) {
+  const cleanId = cleanString(messageId);
+
+  if (!cleanId) return [];
+
+  const childrenByParent = new Map();
+  let found = false;
+
+  for (const message of messages || []) {
+    if (message.id === cleanId) {
+      found = true;
+    }
+
+    if (message.parentMessageId) {
+      const children = childrenByParent.get(message.parentMessageId) || [];
+      children.push(message);
+      childrenByParent.set(message.parentMessageId, children);
+    }
+  }
+
+  if (!found) return [];
+
+  const ids = [];
+  const seen = new Set();
+  const stack = [cleanId];
+
+  while (stack.length) {
+    const id = stack.pop();
+
+    if (!id || seen.has(id)) continue;
+
+    seen.add(id);
+    ids.push(id);
+
+    for (const child of childrenByParent.get(id) || []) {
+      stack.push(child.id);
+    }
+  }
+
+  return ids;
 }
 
 function buildTotals(state) {

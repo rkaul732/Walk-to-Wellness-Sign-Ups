@@ -894,6 +894,7 @@ function renderAdminLogin() {
 function renderAdminDashboard() {
   return `
     ${renderAdminMileageEditor()}
+    ${renderAdminMessagesManager()}
     <section class="panel admin-dashboard" aria-labelledby="admin-dashboard-title">
       <div class="section-header compact-header">
         <div>
@@ -908,6 +909,78 @@ function renderAdminDashboard() {
       }
     </section>
   `;
+}
+
+function renderAdminMessagesManager() {
+  const messages = getAdminMessageRows();
+
+  return `
+    <section class="panel admin-messages-panel" aria-labelledby="admin-messages-title">
+      <div class="section-header compact-header">
+        <div>
+          <h2 id="admin-messages-title">Messages</h2>
+          <p>${messages.length ? "Remove accidental posts, replies, and uploaded walk photos." : "No messages have been posted yet."}</p>
+        </div>
+      </div>
+      ${
+        messages.length
+          ? `<div class="admin-message-list">${messages.slice(0, 100).map(renderAdminMessageRow).join("")}</div>
+             ${messages.length > 100 ? `<p class="muted small">Showing the latest 100 messages.</p>` : ""}`
+          : `<p class="muted small">No message board posts yet.</p>`
+      }
+    </section>
+  `;
+}
+
+function renderAdminMessageRow(message) {
+  const replyText = message.replyCount
+    ? `${message.replyCount} ${pluralize("reply", message.replyCount)}`
+    : "No replies";
+  const messageType = message.parentMessageId ? "Reply" : "Post";
+  const preview = getMessagePreview(message.messageText);
+
+  return `
+    <article class="admin-message-row">
+      <div class="admin-message-row-meta">
+        <div>
+          <strong>${escapeHtml(message.authorName || "Unknown")}</strong>
+          <span>${escapeHtml(messageType)} - ${escapeHtml(formatDateTime(message.createdAt))}</span>
+          ${message.teamName ? `<span>${escapeHtml(message.teamName)}</span>` : ""}
+        </div>
+        <p>${escapeHtml(preview)}</p>
+        <span>${escapeHtml(replyText)}${message.imageData ? " - Includes photo" : ""}</span>
+      </div>
+      <button class="danger-button" type="button" data-admin-delete-message="${escapeAttribute(message.id)}">Delete Message</button>
+    </article>
+  `;
+}
+
+function getAdminMessageRows() {
+  const replyCounts = new Map();
+
+  for (const message of state.messages || []) {
+    if (!message.parentMessageId) continue;
+
+    replyCounts.set(
+      message.parentMessageId,
+      (replyCounts.get(message.parentMessageId) || 0) + 1
+    );
+  }
+
+  return [...(state.messages || [])]
+    .map((message) => ({
+      ...message,
+      replyCount: replyCounts.get(message.id) || 0
+    }))
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+function getMessagePreview(value) {
+  const text = String(value || "").trim().replace(/\s+/g, " ");
+
+  if (text.length <= 160) return text;
+
+  return `${text.slice(0, 157)}...`;
 }
 
 function renderAdminMileageEditor() {
@@ -1660,6 +1733,7 @@ function handleClick(event) {
   const logoutButton = event.target.closest("[data-admin-logout]");
   const deleteTeamButton = event.target.closest("[data-admin-delete-team]");
   const deleteMemberButton = event.target.closest("[data-admin-delete-member]");
+  const deleteMessageButton = event.target.closest("[data-admin-delete-message]");
 
   if (mentionOption) {
     selectMentionOption(Number(mentionOption.dataset.mentionOption) || 0);
@@ -1709,6 +1783,11 @@ function handleClick(event) {
 
   if (deleteMemberButton) {
     handleAdminDeleteMember(deleteMemberButton.dataset.teamId, deleteMemberButton.dataset.adminDeleteMember);
+    return;
+  }
+
+  if (deleteMessageButton) {
+    handleAdminDeleteMessage(deleteMessageButton.dataset.adminDeleteMessage);
     return;
   }
 
@@ -1960,6 +2039,58 @@ async function handleAdminDeleteMember(teamId, memberId) {
   } catch (error) {
     showToast(error.message || "Something went wrong.", "error");
   }
+}
+
+async function handleAdminDeleteMessage(messageId) {
+  const message = (state.messages || []).find((entry) => entry.id === messageId);
+
+  if (!message) return;
+
+  const replyCount = countMessageReplies(messageId);
+  const replyPhrase = replyCount
+    ? ` This also removes ${replyCount} ${pluralize("reply", replyCount)} and all reactions.`
+    : " This also removes any reactions.";
+
+  if (!window.confirm(`Delete this message from ${message.authorName || "this person"}?${replyPhrase}`)) {
+    return;
+  }
+
+  try {
+    await requestJson(`/api/admin/messages/${encodeURIComponent(messageId)}`, { method: "DELETE" });
+    await refreshState();
+    showToast("Message deleted.");
+    render();
+  } catch (error) {
+    showToast(error.message || "Something went wrong.", "error");
+  }
+}
+
+function countMessageReplies(messageId) {
+  const childrenByParent = new Map();
+
+  for (const message of state.messages || []) {
+    if (!message.parentMessageId) continue;
+
+    const children = childrenByParent.get(message.parentMessageId) || [];
+    children.push(message.id);
+    childrenByParent.set(message.parentMessageId, children);
+  }
+
+  let count = 0;
+  const seen = new Set();
+  const stack = [...(childrenByParent.get(messageId) || [])];
+
+  while (stack.length) {
+    const id = stack.pop();
+
+    if (!id || seen.has(id)) continue;
+
+    seen.add(id);
+    count += 1;
+    stack.push(...(childrenByParent.get(id) || []));
+  }
+
+  return count;
 }
 
 function handleChange(event) {
