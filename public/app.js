@@ -1541,7 +1541,7 @@ function showKickoffModal() {
     <section class="kickoff-modal" role="dialog" aria-modal="true" aria-labelledby="kickoff-modal-title">
       <button class="kickoff-modal-close" type="button" aria-label="Close announcement" data-kickoff-close>&times;</button>
       <p class="eyebrow">Walk to Wellness</p>
-      <h2 id="kickoff-modal-title">The Walk to Wellness Challenge Kicks Off Today!</h2>
+      <h2 id="kickoff-modal-title">The Walk to Wellness Challenge Kicked off July 6!</h2>
       <p>Not a member of a team yet? No worries! You're welcome to join at any point during the competition.</p>
       <div class="kickoff-modal-actions">
         <a class="secondary-button" href="#register" data-kickoff-link>Check It Out</a>
