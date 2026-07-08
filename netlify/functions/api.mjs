@@ -762,6 +762,7 @@ async function checkMessageWallSetup() {
       checkedAt: new Date().toISOString(),
       supabaseConfigured: false,
       supabaseHost: supabaseUrl ? safeHost(supabaseUrl) : null,
+      emailDelivery: getEmailDeliverySetup(),
       message: "Netlify is missing SUPABASE_URL or SUPABASE_SECRET_KEY."
     };
   }
@@ -780,10 +781,33 @@ async function checkMessageWallSetup() {
     supabaseConfigured: true,
     supabaseHost: safeHost(supabaseUrl),
     checks,
+    emailDelivery: getEmailDeliverySetup(),
     message: ok
       ? "The message wall and tag contact tables are visible to Netlify."
       : "At least one message wall or tag contact table is still not visible to Netlify. Run the full schema and contact import in the same Supabase project shown by supabaseHost, then wait 30 seconds and check again."
   };
+}
+
+function getEmailDeliverySetup() {
+  const resendConfigured = Boolean(cleanString(process.env.RESEND_API_KEY));
+  const configuredFrom = cleanString(process.env.WALK_EMAIL_FROM);
+  const from = configuredFrom || "Walk to Wellness System <noreply@bhhwalktowellness.com>";
+  const publicSiteUrl = cleanString(process.env.PUBLIC_SITE_URL || process.env.SITE_URL || process.env.URL);
+
+  return {
+    resendConfigured,
+    fromConfigured: Boolean(configuredFrom),
+    fromDomain: extractEmailDomain(from),
+    publicSiteUrlConfigured: Boolean(publicSiteUrl),
+    publicSiteUrl: publicSiteUrl || null,
+    readyToAttemptSend: resendConfigured,
+    note: "Resend must also show this sender domain as verified for messages to be delivered."
+  };
+}
+
+function extractEmailDomain(value) {
+  const match = cleanString(value).match(/@([A-Z0-9.-]+\.[A-Z]{2,})/i);
+  return match ? match[1].toLowerCase() : null;
 }
 
 async function probeSupabase(name, path) {
