@@ -88,7 +88,6 @@ export async function sendMentionNotifications({
         apiKey,
         contact,
         authorName,
-        messageText,
         siteUrl
       });
       sent += 1;
@@ -106,28 +105,39 @@ export async function sendMentionNotifications({
   };
 }
 
-async function sendMentionEmail({ apiKey, contact, authorName, messageText, siteUrl }) {
+async function sendMentionEmail({ apiKey, contact, authorName, siteUrl }) {
   const from = cleanString(process.env.WALK_EMAIL_FROM) || DEFAULT_FROM_EMAIL;
   const sender = cleanString(authorName) || "A teammate";
   const messageUrl = getMessageUrl(siteUrl);
-  const excerpt = getMessageExcerpt(messageText);
-  const subject = `${sender} tagged you in Walk to Wellness`;
+  const subject = `${sender} tagged you on Walk to Wellness`;
+  const messageLinkText = messageUrl || "the Walk to Wellness Message Board";
   const text = [
-    `Hi ${contact.fullName},`,
+    `Hi, ${contact.fullName}!`,
     "",
-    `${sender} tagged you on the Walk to Wellness message board.`,
-    excerpt ? `Message: "${excerpt}"` : "",
-    messageUrl ? `Open the message board: ${messageUrl}` : "Open the Walk to Wellness site to view the message board.",
+    `${sender} tagged you in a post on the Walk to Wellness Message Board! Check it out by clicking here: ${messageLinkText}`,
     "",
-    "Walk to Wellness System"
+    "Happy walking!",
+    "HR"
   ].filter(Boolean).join("\n");
   const html = `
-    <div style="font-family:Arial,sans-serif;line-height:1.5;color:#17283a;">
-      <p>Hi ${escapeHtml(contact.fullName)},</p>
-      <p><strong>${escapeHtml(sender)}</strong> tagged you on the Walk to Wellness message board.</p>
-      ${excerpt ? `<blockquote style="border-left:4px solid #caeef2;margin:18px 0;padding:8px 14px;color:#34495e;">${escapeHtml(excerpt)}</blockquote>` : ""}
-      ${messageUrl ? `<p><a href="${escapeHtml(messageUrl)}" style="color:#2d6f9f;font-weight:bold;">Open the message board</a></p>` : ""}
-      <p style="color:#66707a;font-size:13px;">Walk to Wellness System</p>
+    <div style="margin:0;padding:28px;background:#fffdf8;font-family:Inter,Arial,sans-serif;color:#182f43;line-height:1.55;">
+      <div style="max-width:620px;margin:0 auto;background:#ffffff;border:1px solid #e5e0d8;border-radius:14px;overflow:hidden;box-shadow:0 12px 28px rgba(24,47,67,0.08);">
+        <div style="height:12px;background:linear-gradient(90deg,#e3a0cd 0%,#fffec9 100%);"></div>
+        <div style="padding:30px 30px 26px;">
+          <p style="margin:0 0 8px;color:#376f98;font-size:13px;font-weight:800;letter-spacing:0;text-transform:uppercase;">Walk to Wellness</p>
+          <h1 style="margin:0 0 22px;color:#182f43;font-family:Georgia,'Times New Roman',serif;font-size:34px;line-height:1.12;font-weight:800;">You were tagged!</h1>
+          <p style="margin:0 0 18px;font-size:18px;font-weight:800;">Hi, ${escapeHtml(contact.fullName)}!</p>
+          <p style="margin:0 0 24px;font-size:16px;">
+            <strong>${escapeHtml(sender)}</strong> tagged you in a post on the Walk to Wellness Message Board!
+            ${messageUrl ? `Check it out by <a href="${escapeHtml(messageUrl)}" style="color:#376f98;font-weight:900;text-decoration:underline;">clicking here</a>.` : "Check it out on the Walk to Wellness Message Board."}
+          </p>
+          ${messageUrl ? `<p style="margin:0 0 26px;"><a href="${escapeHtml(messageUrl)}" style="display:inline-block;padding:13px 20px;color:#182f43;background:linear-gradient(90deg,#e3a0cd 0%,#fffec9 100%);border:2px solid #182f43;border-radius:8px;font-weight:900;text-decoration:none;">Open Message Board</a></p>` : ""}
+          <div style="margin-top:24px;padding:16px 18px;background:linear-gradient(90deg,rgba(248,230,231,0.765) 0%,rgba(202,238,242,0.765) 100%);border-radius:8px;">
+            <p style="margin:0 0 4px;font-size:16px;font-weight:800;">Happy walking!</p>
+            <p style="margin:0;color:#66707a;font-size:15px;font-weight:800;">HR</p>
+          </div>
+        </div>
+      </div>
     </div>
   `;
 
@@ -166,11 +176,6 @@ function isMentioned(text, fullName) {
 function getMessageUrl(siteUrl) {
   const cleanUrl = cleanString(siteUrl).replace(/\/$/, "");
   return cleanUrl ? `${cleanUrl}/#messages` : "";
-}
-
-function getMessageExcerpt(messageText) {
-  const text = cleanString(messageText);
-  return text.length > 220 ? `${text.slice(0, 217)}...` : text;
 }
 
 function cleanString(value) {
