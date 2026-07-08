@@ -1,13 +1,13 @@
 import { readFile } from "node:fs/promises";
 
-const LOCAL_CONTACTS_PATH = new URL("./data/participant-contacts.json", import.meta.url);
 const RESEND_ENDPOINT = "https://api.resend.com/emails";
 const DEFAULT_FROM_EMAIL = "Walk to Wellness System <noreply@bhhwalktowellness.com>";
 const EMAIL_BATCH_LIMIT = 50;
 
 export async function loadLocalParticipantContacts(logger = console) {
   try {
-    const raw = await readFile(LOCAL_CONTACTS_PATH, "utf8");
+    const localContactsPath = new URL("./data/participant-contacts.json", import.meta.url);
+    const raw = await readFile(localContactsPath, "utf8");
     return normalizeParticipantContacts(JSON.parse(raw));
   } catch (error) {
     if (error?.code !== "ENOENT") {

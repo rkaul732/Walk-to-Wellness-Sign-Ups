@@ -64,15 +64,26 @@ document.addEventListener("keydown", handleKeydown);
 
 async function init() {
   renderLoading();
-  await refreshState();
-  await refreshAdminSession();
-  render();
-  showKickoffModal();
+
+  try {
+    await refreshState();
+    await refreshAdminSession();
+    render();
+    showKickoffModal();
+  } catch (error) {
+    renderLoadError(error);
+  }
 }
 
 async function refreshState() {
   const response = await fetch("/api/state", { cache: "no-store" });
-  state = await response.json();
+  const payload = await readJsonResponse(response);
+
+  if (!response.ok || !Array.isArray(payload?.teams)) {
+    throw new Error(payload?.error || payload?.errorMessage || "Walk to Wellness data could not load.");
+  }
+
+  state = payload;
   state.distanceEntries = state.distanceEntries || [];
   state.messages = state.messages || [];
 }
@@ -103,6 +114,21 @@ function getRoute() {
 
 function renderLoading() {
   app.innerHTML = `<div class="loading">Loading Walk to Wellness '26</div>`;
+}
+
+function renderLoadError(error) {
+  app.innerHTML = `
+    <section class="page content-band">
+      <div class="single-column">
+        <section class="panel load-error-panel">
+          <p class="eyebrow">Walk to Wellness</p>
+          <h1>We could not load the site data.</h1>
+          <p>${escapeHtml(error?.message || "Please refresh the page or try again in a moment.")}</p>
+          <button class="primary-button" type="button" data-retry-load>Try Again</button>
+        </section>
+      </div>
+    </section>
+  `;
 }
 
 function render() {
@@ -1565,6 +1591,11 @@ function handleClick(event) {
   const deleteTeamButton = event.target.closest("[data-admin-delete-team]");
   const deleteMemberButton = event.target.closest("[data-admin-delete-member]");
 
+  if (event.target.closest("[data-retry-load]")) {
+    init();
+    return;
+  }
+
   if (kickoffCloseButton || kickoffLink || kickoffBackdrop) {
     dismissKickoffModal();
     return;
@@ -1716,10 +1747,10 @@ async function requestJson(url, options = {}) {
     headers: { "content-type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body)
   });
-  const payload = await response.json();
+  const payload = await readJsonResponse(response);
 
   if (!response.ok) {
-    const error = new Error(payload.error || "Please check the form and try again.");
+    const error = new Error(payload?.error || payload?.errorMessage || "Please check the form and try again.");
     error.status = response.status;
     error.payload = payload;
     throw error;
@@ -1735,6 +1766,18 @@ async function requestJson(url, options = {}) {
 
 async function postJson(url, body) {
   return requestJson(url, { method: "POST", body });
+}
+
+async function readJsonResponse(response) {
+  const text = await response.text();
+
+  if (!text) return null;
+
+  try {
+    return JSON.parse(text);
+  } catch {
+    return { error: text };
+  }
 }
 
 function getChallengeWeeks() {
