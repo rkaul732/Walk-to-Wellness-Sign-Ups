@@ -1000,6 +1000,14 @@ select:disabled {
   gap: 16px;
 }
 
+.message-card-tools {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: max-content;
+}
+
 .message-card h3 {
   margin: 0;
   color: var(--ink);
@@ -1017,6 +1025,12 @@ select:disabled {
   min-width: max-content;
   color: var(--muted);
   font-size: 0.9rem;
+}
+
+.message-admin-delete {
+  min-height: 32px;
+  padding: 0 10px;
+  font-size: 0.82rem;
 }
 
 .message-text {

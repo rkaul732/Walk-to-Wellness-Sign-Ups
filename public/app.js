@@ -631,6 +631,10 @@ function renderMessagesPage() {
 }
 
 function renderMessageCard(message, depth = 0) {
+  const adminDeleteButton = adminSession.authenticated
+    ? `<button class="message-admin-delete danger-button" type="button" data-admin-delete-message="${escapeAttribute(message.id)}">Delete</button>`
+    : "";
+
   return `
     <article class="message-card ${depth ? "reply-card" : ""}" style="--reply-depth:${Math.min(depth, 4)}">
       <div class="message-card-header">
@@ -638,7 +642,10 @@ function renderMessageCard(message, depth = 0) {
           <h3>${escapeHtml(message.authorName)}</h3>
           ${message.teamName ? `<p>${escapeHtml(message.teamName)}</p>` : ""}
         </div>
-        <time datetime="${escapeAttribute(message.createdAt)}">${escapeHtml(formatDateTime(message.createdAt))}</time>
+        <div class="message-card-tools">
+          <time datetime="${escapeAttribute(message.createdAt)}">${escapeHtml(formatDateTime(message.createdAt))}</time>
+          ${adminDeleteButton}
+        </div>
       </div>
       <p class="message-text">${formatMessageText(message.messageText)}</p>
       ${
@@ -2061,8 +2068,19 @@ async function handleAdminDeleteMessage(messageId) {
     showToast("Message deleted.");
     render();
   } catch (error) {
-    showToast(error.message || "Something went wrong.", "error");
+    await handleAdminActionError(error);
   }
+}
+
+async function handleAdminActionError(error) {
+  if (error?.status === 401) {
+    await refreshAdminSession();
+    showToast("Your admin session expired. Please log in again, then try deleting the message.", "error");
+    render();
+    return;
+  }
+
+  showToast(error.message || "Something went wrong.", "error");
 }
 
 function countMessageReplies(messageId) {
@@ -2131,6 +2149,7 @@ async function requestJson(url, options = {}) {
   const body = options.body;
   const response = await fetch(url, {
     method,
+    credentials: "same-origin",
     headers: { "content-type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body)
   });
