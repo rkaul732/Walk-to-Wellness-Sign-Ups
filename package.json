@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
-    "build": "node --check server.js && node --check public/app.js && node --check netlify/functions/api.mjs"
+    "build": "node --check server.js && node --check mention-notifications.js && node --check public/app.js && node --check netlify/functions/api.mjs"
   },
   "engines": {
     "node": ">=20"

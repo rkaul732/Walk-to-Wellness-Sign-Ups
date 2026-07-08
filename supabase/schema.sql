@@ -61,6 +61,28 @@ create table if not exists public.registrations (
   created_at timestamptz not null default now()
 );
 
+create table if not exists public.participant_contacts (
+  id uuid primary key default gen_random_uuid(),
+  full_name text not null check (length(trim(full_name)) > 0),
+  email text not null check (length(trim(email)) > 0),
+  active boolean not null default true,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+alter table public.participant_contacts
+  add column if not exists full_name text,
+  add column if not exists email text,
+  add column if not exists active boolean not null default true,
+  add column if not exists created_at timestamptz not null default now(),
+  add column if not exists updated_at timestamptz not null default now();
+
+create unique index if not exists participant_contacts_email_lower_unique
+  on public.participant_contacts (lower(email));
+
+create unique index if not exists participant_contacts_name_lower_unique
+  on public.participant_contacts (lower(full_name));
+
 create table if not exists public.activities (
   id uuid primary key default gen_random_uuid(),
   participant_name text not null check (length(trim(participant_name)) > 0),
@@ -150,6 +172,7 @@ create index if not exists message_reactions_message_id_idx
 alter table public.teams enable row level security;
 alter table public.team_members enable row level security;
 alter table public.registrations enable row level security;
+alter table public.participant_contacts enable row level security;
 alter table public.activities enable row level security;
 alter table public.distance_entries enable row level security;
 alter table public.messages enable row level security;
@@ -158,6 +181,7 @@ alter table public.message_reactions enable row level security;
 grant select, insert, update, delete on public.teams to service_role;
 grant select, insert, update, delete on public.team_members to service_role;
 grant select, insert, update, delete on public.registrations to service_role;
+grant select, insert, update, delete on public.participant_contacts to service_role;
 grant select, insert, update, delete on public.activities to service_role;
 grant select, insert, update, delete on public.distance_entries to service_role;
 grant select, insert, update, delete on public.messages to service_role;

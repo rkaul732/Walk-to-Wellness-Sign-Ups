@@ -4,6 +4,10 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  loadLocalParticipantContacts,
+  sendMentionNotifications
+} from "./mention-notifications.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -297,6 +301,16 @@ function roundMiles(value) {
 
 function cleanString(value) {
   return String(value ?? "").trim().replace(/\s+/g, " ");
+}
+
+function getRequestSiteUrl(request) {
+  const configuredUrl = cleanString(process.env.PUBLIC_SITE_URL || process.env.SITE_URL || process.env.URL);
+  const host = cleanString(request.headers.host);
+
+  if (configuredUrl) return configuredUrl;
+  if (host) return `http://${host}`;
+
+  return `http://${HOST}:${PORT}`;
 }
 
 function cleanMessageText(value) {
@@ -1149,6 +1163,15 @@ async function handleApi(request, response, url) {
         imageName,
         createdAt: new Date().toISOString()
       });
+    });
+
+    const contacts = await loadLocalParticipantContacts(console);
+    await sendMentionNotifications({
+      authorName,
+      messageText,
+      contacts,
+      siteUrl: getRequestSiteUrl(request),
+      logger: console
     });
 
     sendJson(response, getPublicState(state), 201);

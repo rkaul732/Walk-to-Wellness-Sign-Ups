@@ -514,6 +514,7 @@ function renderMessagesPage() {
             <label>
               Encouragement Message
               <textarea name="messageText" maxlength="600" placeholder="Cheer someone on or share a walking highlight." required></textarea>
+              <span class="field-hint">Tag someone with @First Last to send them an email notification.</span>
             </label>
             <label>
               Walk Photo
@@ -598,6 +599,7 @@ function renderReplyForm(message) {
       <label>
         Reply
         <textarea name="messageText" maxlength="600" placeholder="Write a reply..." required></textarea>
+        <span class="field-hint">Tag someone with @First Last to send them an email notification.</span>
       </label>
       <div class="button-row">
         <button class="primary-button" type="submit">Post Reply</button>
@@ -2028,7 +2030,9 @@ function formatDateTime(value) {
 }
 
 function formatMessageText(value) {
-  return escapeHtml(value || "").replace(/\n/g, "<br>");
+  return escapeHtml(value || "")
+    .replace(/(^|[^\w@])(@[A-Za-z][A-Za-z'.-]+(?:\s+[A-Za-z][A-Za-z'.-]+)+)/g, '$1<span class="message-mention">$2</span>')
+    .replace(/\n/g, "<br>");
 }
 
 function toISODate(date) {

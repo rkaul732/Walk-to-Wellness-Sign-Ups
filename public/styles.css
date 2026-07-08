@@ -847,6 +847,14 @@ select:disabled {
   margin-bottom: 22px;
 }
 
+.field-hint {
+  display: block;
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
 .message-wall-panel {
   display: grid;
   gap: 16px;
@@ -895,6 +903,11 @@ select:disabled {
 .message-text {
   margin: 0;
   color: var(--ink);
+}
+
+.message-mention {
+  color: var(--blue);
+  font-weight: 900;
 }
 
 .message-photo {

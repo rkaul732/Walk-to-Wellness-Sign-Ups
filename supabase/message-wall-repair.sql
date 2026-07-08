@@ -1,5 +1,27 @@
 create extension if not exists "pgcrypto";
 
+create table if not exists public.participant_contacts (
+  id uuid primary key default gen_random_uuid(),
+  full_name text not null check (length(trim(full_name)) > 0),
+  email text not null check (length(trim(email)) > 0),
+  active boolean not null default true,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+alter table public.participant_contacts
+  add column if not exists full_name text,
+  add column if not exists email text,
+  add column if not exists active boolean not null default true,
+  add column if not exists created_at timestamptz not null default now(),
+  add column if not exists updated_at timestamptz not null default now();
+
+create unique index if not exists participant_contacts_email_lower_unique
+  on public.participant_contacts (lower(email));
+
+create unique index if not exists participant_contacts_name_lower_unique
+  on public.participant_contacts (lower(full_name));
+
 create table if not exists public.messages (
   id uuid primary key default gen_random_uuid(),
   author_name text not null check (length(trim(author_name)) > 0),
@@ -46,9 +68,11 @@ alter table public.message_reactions
 create index if not exists message_reactions_message_id_idx
   on public.message_reactions (message_id);
 
+alter table public.participant_contacts enable row level security;
 alter table public.messages enable row level security;
 alter table public.message_reactions enable row level security;
 
+grant select, insert, update, delete on public.participant_contacts to service_role;
 grant select, insert, update, delete on public.messages to service_role;
 grant select, insert, update, delete on public.message_reactions to service_role;
 

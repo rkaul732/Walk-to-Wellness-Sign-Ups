@@ -1,4 +1,8 @@
 import crypto from "node:crypto";
+import {
+  normalizeParticipantContacts,
+  sendMentionNotifications
+} from "../../mention-notifications.js";
 
 const jsonHeaders = {
   "content-type": "application/json; charset=utf-8",
@@ -376,6 +380,15 @@ export async function handler(event) {
         throw error;
       }
 
+      const contacts = await loadParticipantContacts();
+      await sendMentionNotifications({
+        authorName,
+        messageText,
+        contacts,
+        siteUrl: getSiteUrl(event),
+        logger: console
+      });
+
       return json(await loadPublicState(), 201);
     }
 
@@ -712,6 +725,20 @@ async function loadMessageReactionRows() {
   }
 }
 
+async function loadParticipantContacts() {
+  try {
+    const rows = await supabaseFetch("participant_contacts?select=full_name,email,active&active=eq.true&order=full_name.asc");
+    return normalizeParticipantContacts(rows);
+  } catch (error) {
+    if (isMissingContactSchemaError(error)) {
+      console.warn(`Participant contacts are not set up in Supabase yet: ${error.message}`);
+      return [];
+    }
+
+    throw error;
+  }
+}
+
 async function checkMessageWallSetup() {
   const supabaseUrl = process.env.SUPABASE_URL?.replace(/\/$/, "");
   const supabaseKey = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -729,7 +756,8 @@ async function checkMessageWallSetup() {
   const checks = await Promise.all([
     probeSupabase("teams", "teams?select=id&limit=1"),
     probeSupabase("messages", "messages?select=id,author_name,parent_message_id,team_id,team_name,message_text,image_data,image_name,created_at&limit=1"),
-    probeSupabase("message_reactions", "message_reactions?select=id,message_id,reaction_emoji,created_at&limit=1")
+    probeSupabase("message_reactions", "message_reactions?select=id,message_id,reaction_emoji,created_at&limit=1"),
+    probeSupabase("participant_contacts", "participant_contacts?select=id,full_name,email,active&limit=1")
   ]);
   const ok = checks.every((check) => check.ok);
 
@@ -740,8 +768,8 @@ async function checkMessageWallSetup() {
     supabaseHost: safeHost(supabaseUrl),
     checks,
     message: ok
-      ? "The message wall tables are visible to Netlify."
-      : "At least one message wall table or column is still not visible to Netlify. Run the repair SQL in the same Supabase project shown by supabaseHost, then wait 30 seconds and check again."
+      ? "The message wall and tag contact tables are visible to Netlify."
+      : "At least one message wall or tag contact table is still not visible to Netlify. Run the full schema and contact import in the same Supabase project shown by supabaseHost, then wait 30 seconds and check again."
   };
 }
 
@@ -786,6 +814,11 @@ function isMissingMessageSchemaError(error) {
     && /(schema cache|does not exist|not find|relation|column)/i.test(error.message || "");
 }
 
+function isMissingContactSchemaError(error) {
+  return /participant_contacts/i.test(error.message || "")
+    && /(schema cache|does not exist|not find|relation|column)/i.test(error.message || "");
+}
+
 async function supabaseFetch(path, options = {}) {
   const supabaseUrl = process.env.SUPABASE_URL?.replace(/\/$/, "");
   const supabaseKey = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -822,6 +855,21 @@ function safeHost(value) {
   } catch {
     return value;
   }
+}
+
+function getSiteUrl(event) {
+  const configuredUrl = cleanString(process.env.PUBLIC_SITE_URL || process.env.SITE_URL || process.env.URL);
+
+  if (configuredUrl) return configuredUrl;
+
+  const host = cleanString(event.headers?.host || event.headers?.Host);
+  const protocol = cleanString(
+    event.headers?.["x-forwarded-proto"]
+      || event.headers?.["X-Forwarded-Proto"]
+      || "https"
+  );
+
+  return host ? `${protocol}://${host}` : "";
 }
 
 function getPublicState(state) {
