@@ -49,6 +49,8 @@ let selectedDistanceTeamId = "";
 let selectedDistanceMemberId = "";
 let selectedDistanceMode = "daily";
 let selectedDistanceWeek = getDefaultChallengeWeek();
+let selectedIndividualLogView = "total";
+let selectedIndividualLogDate = getDefaultIndividualLogDate();
 let replyingToMessageId = null;
 let adminSession = { authenticated: false, configured: true, username: null };
 let toastTimer = null;
@@ -660,8 +662,14 @@ function renderLiveFeedPage() {
 }
 
 function renderIndividualLogsPage() {
-  const rows = getIndividualMileageRows();
+  const isDateView = selectedIndividualLogView === "date";
+  const dateBounds = getChallengeDateBounds();
+  const selectedDate = selectedIndividualLogDate || getDefaultIndividualLogDate();
+  const rows = getIndividualMileageRows({
+    date: isDateView ? selectedDate : ""
+  });
   const totalMiles = rows.reduce((total, row) => total + row.miles, 0);
+  const selectedDateLabel = isDateView ? formatSelectedLogDate(selectedDate) : "";
 
   app.innerHTML = `
     <section class="page content-band individual-logs-page">
@@ -669,24 +677,47 @@ function renderIndividualLogsPage() {
         <div class="section-header">
           <div>
             <h1>Individual Logs</h1>
-            <p>Everyone listed alphabetically with total miles walked so far.</p>
+            <p>${isDateView ? `Everyone listed alphabetically with miles for ${escapeHtml(selectedDateLabel)}.` : "Everyone listed alphabetically with total miles walked so far."}</p>
           </div>
         </div>
         <section class="panel individual-log-panel" aria-labelledby="individual-log-title">
           <div class="section-header compact-header">
             <div>
               <h2 id="individual-log-title">Participant Mileage</h2>
-              <p>${rows.length} ${pluralize("participant", rows.length)} · ${formatNumber(totalMiles)} total ${pluralize("mile", totalMiles)}</p>
+              <p>${rows.length} ${pluralize("participant", rows.length)} · ${formatNumber(totalMiles)} ${isDateView ? `total ${pluralize("mile", totalMiles)} on ${escapeHtml(selectedDateLabel)}` : `total ${pluralize("mile", totalMiles)}`}</p>
             </div>
           </div>
-          ${renderIndividualLogsTable(rows)}
+          ${renderIndividualLogControls(dateBounds)}
+          ${renderIndividualLogsTable(rows, isDateView)}
         </section>
       </div>
     </section>
   `;
 }
 
-function renderIndividualLogsTable(rows) {
+function renderIndividualLogControls(dateBounds) {
+  return `
+    <div class="individual-log-controls">
+      <label>
+        View By
+        <select data-individual-log-view>
+          <option value="total" ${selectedIndividualLogView === "total" ? "selected" : ""}>By Total</option>
+          <option value="date" ${selectedIndividualLogView === "date" ? "selected" : ""}>By Date</option>
+        </select>
+      </label>
+      ${
+        selectedIndividualLogView === "date"
+          ? `<label>
+              Select Date
+              <input type="date" value="${escapeAttribute(selectedIndividualLogDate)}" min="${escapeAttribute(dateBounds.min)}" max="${escapeAttribute(dateBounds.max)}" data-individual-log-date>
+            </label>`
+          : ""
+      }
+    </div>
+  `;
+}
+
+function renderIndividualLogsTable(rows, isDateView = false) {
   if (!rows.length) {
     return `<p class="muted">No team members have signed up yet.</p>`;
   }
@@ -698,7 +729,7 @@ function renderIndividualLogsTable(rows) {
           <tr>
             <th scope="col">Person</th>
             <th scope="col">Team</th>
-            <th scope="col">Total Miles</th>
+            <th scope="col">${isDateView ? "Miles This Date" : "Total Miles"}</th>
           </tr>
         </thead>
         <tbody>
@@ -941,6 +972,27 @@ function getDefaultAdminMileageDate(dayOptions) {
   return dayOptions.some((day) => day.isoDate === today)
     ? today
     : dayOptions[0]?.isoDate || "";
+}
+
+function getDefaultIndividualLogDate() {
+  return getDefaultAdminMileageDate(getChallengeDayOptions());
+}
+
+function getChallengeDateBounds() {
+  const dayOptions = getChallengeDayOptions();
+
+  return {
+    min: dayOptions[0]?.isoDate || "",
+    max: dayOptions.at(-1)?.isoDate || ""
+  };
+}
+
+function formatSelectedLogDate(value) {
+  const day = getChallengeDayOptions().find((entry) => entry.isoDate === value);
+
+  return day
+    ? `${day.dateLabel} (${day.dayName})`
+    : value;
 }
 
 function getAdminDailyMileageRows() {
@@ -1641,6 +1693,17 @@ function handleChange(event) {
     selectedDistanceWeek = Number(event.target.value);
     render();
   }
+
+  if (event.target.matches("[data-individual-log-view]")) {
+    selectedIndividualLogView = event.target.value === "date" ? "date" : "total";
+    selectedIndividualLogDate = selectedIndividualLogDate || getDefaultIndividualLogDate();
+    render();
+  }
+
+  if (event.target.matches("[data-individual-log-date]")) {
+    selectedIndividualLogDate = event.target.value || getDefaultIndividualLogDate();
+    render();
+  }
 }
 
 async function requestJson(url, options = {}) {
@@ -1798,7 +1861,8 @@ function getTopMembers() {
     }));
 }
 
-function getIndividualMileageRows() {
+function getIndividualMileageRows(options = {}) {
+  const selectedDate = cleanString(options.date);
   const rows = new Map();
 
   for (const team of state.teams) {
@@ -1813,13 +1877,16 @@ function getIndividualMileageRows() {
   }
 
   for (const entry of state.distanceEntries || []) {
+    const miles = selectedDate
+      ? getEntryMilesForDate(entry, selectedDate)
+      : Number(entry.totalMiles) || 0;
     const memberId = cleanString(entry.memberId);
     const memberName = cleanString(entry.memberName);
     const key = rows.has(memberId)
       ? memberId
       : memberId || `legacy:${nameKey(memberName)}`;
 
-    if (!key || !memberName) continue;
+    if (!key || !memberName || miles <= 0) continue;
 
     const existing = rows.get(key) || {
       id: key,
@@ -1828,7 +1895,7 @@ function getIndividualMileageRows() {
       miles: 0
     };
 
-    existing.miles = roundMiles(existing.miles + (Number(entry.totalMiles) || 0));
+    existing.miles = roundMiles(existing.miles + miles);
     rows.set(key, existing);
   }
 
@@ -1836,6 +1903,18 @@ function getIndividualMileageRows() {
     a.name.localeCompare(b.name) ||
     a.teamName.localeCompare(b.teamName)
   );
+}
+
+function getEntryMilesForDate(entry, selectedDate) {
+  if (entry.entryMode !== "daily") {
+    return 0;
+  }
+
+  return roundMiles((entry.dailyMiles || []).reduce((total, day) => {
+    return cleanString(day.isoDate) === selectedDate
+      ? total + (Number(day.miles) || 0)
+      : total;
+  }, 0));
 }
 
 function addMemberMiles(map, name, miles) {

@@ -1088,6 +1088,21 @@ select:disabled {
   gap: 14px;
 }
 
+.individual-log-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: end;
+  padding: 14px;
+  background: #ffffff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.individual-log-controls label {
+  min-width: min(220px, 100%);
+}
+
 .individual-log-table-wrap {
   overflow-x: auto;
   border: 1px solid var(--line);
