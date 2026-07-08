@@ -20,6 +20,7 @@ const MESSAGE_IMAGE_MAX_FILE_SIZE = 8 * 1024 * 1024;
 const MESSAGE_IMAGE_MAX_SIDE = 1200;
 const MESSAGE_REACTION_OPTIONS = ["👍", "❤️", "👏", "🎉", "😊", "💪"];
 const KICKOFF_MODAL_STORAGE_KEY = "walkToWellnessKickoffDismissed";
+const MENTION_SUGGESTION_LIMIT = 8;
 const weekColors = [
   "#9ec9e8",
   "#7fb3dc",
@@ -53,12 +54,16 @@ let selectedIndividualLogView = "total";
 let selectedIndividualLogDate = getDefaultIndividualLogDate();
 let replyingToMessageId = null;
 let adminSession = { authenticated: false, configured: true, username: null };
+let mentionablePeople = [];
+let mentionablePeopleUsesStateFallback = true;
+let activeMention = null;
 let toastTimer = null;
 
 document.addEventListener("DOMContentLoaded", init);
 window.addEventListener("hashchange", render);
 document.addEventListener("submit", handleSubmit);
 document.addEventListener("click", handleClick);
+document.addEventListener("input", handleInput);
 document.addEventListener("change", handleChange);
 document.addEventListener("keydown", handleKeydown);
 
@@ -67,6 +72,7 @@ async function init() {
 
   try {
     await refreshState();
+    await refreshMentionablePeople();
     await refreshAdminSession();
     render();
     showKickoffModal();
@@ -95,6 +101,53 @@ async function refreshAdminSession() {
   } catch {
     adminSession = { authenticated: false, configured: false, username: null };
   }
+}
+
+async function refreshMentionablePeople() {
+  try {
+    const response = await fetch("/api/mentionable-people", { cache: "no-store" });
+    const payload = await readJsonResponse(response);
+
+    if (!response.ok || !Array.isArray(payload?.people)) {
+      throw new Error("Mention suggestions could not load.");
+    }
+
+    mentionablePeople = normalizeMentionablePeople(payload.people);
+    mentionablePeopleUsesStateFallback = payload.source !== "contacts";
+  } catch {
+    mentionablePeople = getStateMentionablePeople();
+    mentionablePeopleUsesStateFallback = true;
+  }
+}
+
+function getStateMentionablePeople() {
+  const people = [];
+
+  for (const team of state?.teams || []) {
+    for (const member of team.members || []) {
+      people.push({ fullName: member.fullName });
+    }
+  }
+
+  for (const registration of state?.registrations || []) {
+    people.push({ fullName: `${registration.firstName || ""} ${registration.lastName || ""}` });
+  }
+
+  return normalizeMentionablePeople(people);
+}
+
+function normalizeMentionablePeople(people) {
+  const byName = new Map();
+
+  for (const person of people || []) {
+    const fullName = cleanString(person.fullName || person.full_name || person.name);
+
+    if (fullName.split(" ").length < 2) continue;
+
+    byName.set(nameKey(fullName), { fullName });
+  }
+
+  return [...byName.values()].sort((a, b) => a.fullName.localeCompare(b.fullName));
 }
 
 function getRoute() {
@@ -539,8 +592,11 @@ function renderMessagesPage() {
             </div>
             <label>
               Encouragement Message
-              <textarea name="messageText" maxlength="600" placeholder="Cheer someone on or share a walking highlight." required></textarea>
-              <span class="field-hint">Tag someone with @First Last to send them an email notification.</span>
+              <span class="mention-field">
+                <textarea name="messageText" maxlength="600" placeholder="Cheer someone on or share a walking highlight." required data-mention-input aria-autocomplete="list" aria-expanded="false"></textarea>
+                <span class="mention-picker" data-mention-picker hidden></span>
+              </span>
+              <span class="field-hint">Type @ and select a name to send that person an email notification.</span>
             </label>
             <label>
               Walk Photo
@@ -624,8 +680,11 @@ function renderReplyForm(message) {
       </div>
       <label>
         Reply
-        <textarea name="messageText" maxlength="600" placeholder="Write a reply..." required></textarea>
-        <span class="field-hint">Tag someone with @First Last to send them an email notification.</span>
+        <span class="mention-field">
+          <textarea name="messageText" maxlength="600" placeholder="Write a reply..." required data-mention-input aria-autocomplete="list" aria-expanded="false"></textarea>
+          <span class="mention-picker" data-mention-picker hidden></span>
+        </span>
+        <span class="field-hint">Type @ and select a name to send that person an email notification.</span>
       </label>
       <div class="button-row">
         <button class="primary-button" type="submit">Post Reply</button>
@@ -1579,7 +1638,14 @@ function setKickoffModalDismissed() {
   }
 }
 
+function handleInput(event) {
+  if (!event.target.matches("[data-mention-input]")) return;
+
+  updateMentionPicker(event.target);
+}
+
 function handleClick(event) {
+  const mentionOption = event.target.closest("[data-mention-option]");
   const kickoffCloseButton = event.target.closest("[data-kickoff-close]");
   const kickoffLink = event.target.closest("[data-kickoff-link]");
   const kickoffBackdrop = event.target.matches("[data-kickoff-modal]") ? event.target : null;
@@ -1590,6 +1656,15 @@ function handleClick(event) {
   const logoutButton = event.target.closest("[data-admin-logout]");
   const deleteTeamButton = event.target.closest("[data-admin-delete-team]");
   const deleteMemberButton = event.target.closest("[data-admin-delete-member]");
+
+  if (mentionOption) {
+    selectMentionOption(Number(mentionOption.dataset.mentionOption) || 0);
+    return;
+  }
+
+  if (!event.target.closest(".mention-field")) {
+    hideMentionPicker();
+  }
 
   if (event.target.closest("[data-retry-load]")) {
     init();
@@ -1640,6 +1715,10 @@ function handleClick(event) {
 }
 
 function handleKeydown(event) {
+  if (handleMentionKeydown(event)) {
+    return;
+  }
+
   if (event.key === "Escape" && document.querySelector("[data-kickoff-modal]")) {
     dismissKickoffModal();
   }
@@ -1649,6 +1728,168 @@ function handleKeydown(event) {
       dropdown.removeAttribute("open");
     });
   }
+}
+
+function updateMentionPicker(input) {
+  const mention = getActiveMention(input);
+
+  if (!mention) {
+    hideMentionPicker(input);
+    return;
+  }
+
+  const matches = getMentionMatches(mention.query);
+
+  if (!matches.length) {
+    hideMentionPicker(input);
+    return;
+  }
+
+  activeMention = {
+    ...mention,
+    input,
+    matches,
+    selectedIndex: Math.min(activeMention?.selectedIndex || 0, matches.length - 1)
+  };
+
+  renderMentionPicker();
+}
+
+function getActiveMention(input) {
+  const cursor = input.selectionStart;
+  const beforeCursor = input.value.slice(0, cursor);
+  const atIndex = beforeCursor.lastIndexOf("@");
+
+  if (atIndex < 0) return null;
+
+  const prefix = atIndex > 0 ? beforeCursor[atIndex - 1] : "";
+
+  if (prefix && /[\w@]/.test(prefix)) return null;
+
+  const query = beforeCursor.slice(atIndex + 1);
+
+  if (query.includes("\n") || query.length > 80 || /[,!?:;()[\]{}]/.test(query)) {
+    return null;
+  }
+
+  return {
+    start: atIndex,
+    end: cursor,
+    query
+  };
+}
+
+function getMentionMatches(query) {
+  const cleanQuery = nameKey(query);
+
+  if (!mentionablePeople.length) return [];
+
+  if (!cleanQuery) {
+    return mentionablePeople.slice(0, MENTION_SUGGESTION_LIMIT);
+  }
+
+  return mentionablePeople
+    .filter((person) => {
+      const personKey = nameKey(person.fullName);
+      return personKey.includes(cleanQuery)
+        || cleanQuery.split(" ").every((part) => personKey.split(" ").some((namePart) => namePart.startsWith(part)));
+    })
+    .slice(0, MENTION_SUGGESTION_LIMIT);
+}
+
+function renderMentionPicker() {
+  const field = activeMention?.input?.closest(".mention-field");
+  const picker = field?.querySelector("[data-mention-picker]");
+
+  if (!picker || !activeMention?.matches?.length) return;
+
+  picker.hidden = false;
+  picker.innerHTML = activeMention.matches
+    .map((person, index) => `
+      <button
+        class="mention-option ${index === activeMention.selectedIndex ? "active" : ""}"
+        type="button"
+        role="option"
+        aria-selected="${index === activeMention.selectedIndex ? "true" : "false"}"
+        data-mention-option="${index}">
+        <span>@${escapeHtml(person.fullName)}</span>
+      </button>
+    `)
+    .join("");
+
+  activeMention.input.setAttribute("aria-expanded", "true");
+}
+
+function hideMentionPicker(input = activeMention?.input) {
+  const field = input?.closest?.(".mention-field");
+  const picker = field?.querySelector("[data-mention-picker]");
+
+  if (picker) {
+    picker.hidden = true;
+    picker.innerHTML = "";
+  }
+
+  input?.setAttribute?.("aria-expanded", "false");
+
+  if (!input || activeMention?.input === input) {
+    activeMention = null;
+  }
+}
+
+function handleMentionKeydown(event) {
+  if (!event.target.matches("[data-mention-input]")) return false;
+
+  if (!activeMention || activeMention.input !== event.target) {
+    if (event.key.length === 1 || event.key === "Backspace" || event.key === "Delete") {
+      window.setTimeout(() => updateMentionPicker(event.target), 0);
+    }
+    return false;
+  }
+
+  if (event.key === "ArrowDown") {
+    event.preventDefault();
+    activeMention.selectedIndex = (activeMention.selectedIndex + 1) % activeMention.matches.length;
+    renderMentionPicker();
+    return true;
+  }
+
+  if (event.key === "ArrowUp") {
+    event.preventDefault();
+    activeMention.selectedIndex = (activeMention.selectedIndex - 1 + activeMention.matches.length) % activeMention.matches.length;
+    renderMentionPicker();
+    return true;
+  }
+
+  if (event.key === "Enter" || event.key === "Tab") {
+    event.preventDefault();
+    selectMentionOption(activeMention.selectedIndex);
+    return true;
+  }
+
+  if (event.key === "Escape") {
+    event.preventDefault();
+    hideMentionPicker(event.target);
+    return true;
+  }
+
+  window.setTimeout(() => updateMentionPicker(event.target), 0);
+  return false;
+}
+
+function selectMentionOption(index) {
+  if (!activeMention?.matches?.length) return;
+
+  const person = activeMention.matches[index] || activeMention.matches[0];
+  const input = activeMention.input;
+  const before = input.value.slice(0, activeMention.start);
+  const after = input.value.slice(activeMention.end);
+  const insertion = `@${person.fullName} `;
+
+  input.value = `${before}${insertion}${after}`;
+  const cursor = before.length + insertion.length;
+  input.setSelectionRange(cursor, cursor);
+  input.focus();
+  hideMentionPicker(input);
 }
 
 async function handleMessageReaction(messageId, emoji) {
@@ -1760,6 +2001,12 @@ async function requestJson(url, options = {}) {
     state = payload;
     state.distanceEntries = state.distanceEntries || [];
     state.messages = state.messages || [];
+    if (mentionablePeopleUsesStateFallback) {
+      mentionablePeople = normalizeMentionablePeople([
+        ...mentionablePeople,
+        ...getStateMentionablePeople()
+      ]);
+    }
   }
   return payload;
 }
@@ -2088,6 +2335,10 @@ function roundMiles(value) {
 
 function cleanString(value) {
   return String(value ?? "").trim().replace(/\s+/g, " ");
+}
+
+function nameKey(value) {
+  return cleanString(value).toLowerCase();
 }
 
 function escapeHtml(value) {

@@ -24,6 +24,18 @@ export async function handler(event) {
       return json(await loadPublicState());
     }
 
+    if (method === "GET" && pathname === "/api/mentionable-people") {
+      const [currentState, contacts] = await Promise.all([
+        loadPublicState(),
+        loadParticipantContacts()
+      ]);
+
+      return json({
+        people: buildMentionablePeople(currentState, contacts),
+        source: contacts.length ? "contacts" : "state"
+      });
+    }
+
     if (method === "GET" && pathname === "/api/message-wall-check") {
       return json(await checkMessageWallSetup());
     }
@@ -913,6 +925,37 @@ function buildPublicMessages(state) {
       reactionCounts: reactionCounts.get(message.id) || {}
     }))
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+function buildMentionablePeople(state, contacts = []) {
+  const people = new Map();
+  const hasContacts = Array.isArray(contacts) && contacts.length > 0;
+  const addPerson = (fullName) => {
+    const cleanName = cleanString(fullName);
+    const parts = cleanName.split(" ");
+
+    if (parts.length < 2) return;
+
+    people.set(nameKey(cleanName), { fullName: cleanName });
+  };
+
+  for (const contact of contacts || []) {
+    addPerson(contact.fullName || contact.full_name || contact.name);
+  }
+
+  if (!hasContacts) {
+    for (const team of state.teams || []) {
+      for (const member of team.members || []) {
+        addPerson(member.fullName);
+      }
+    }
+
+    for (const registration of state.registrations || []) {
+      addPerson(`${registration.firstName || ""} ${registration.lastName || ""}`);
+    }
+  }
+
+  return [...people.values()].sort((a, b) => a.fullName.localeCompare(b.fullName));
 }
 
 function buildTotals(state) {
