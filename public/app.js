@@ -5,7 +5,8 @@ const routes = {
   messages: "Messages",
   "join-team": "Join a Team",
   "step-submission": "Step Submission",
-  "live-feed": "Live Feed",
+  "live-feed": "Leaderboard",
+  "individual-logs": "Individual Logs",
   admin: "Admin"
 };
 
@@ -118,12 +119,16 @@ function render() {
   if (route === "join-team") renderJoinTeamPage();
   if (route === "step-submission") renderStepSubmissionPage();
   if (route === "live-feed") renderLiveFeedPage();
+  if (route === "individual-logs") renderIndividualLogsPage();
   if (route === "admin") renderAdminPage();
 }
 
 function updateActiveNav(route) {
   document.querySelectorAll("[data-route]").forEach((link) => {
     link.classList.toggle("active", link.dataset.route === route);
+  });
+  document.querySelectorAll("[data-route-group]").forEach((item) => {
+    item.classList.toggle("active", item.dataset.routeGroup.split(/\s+/).includes(route));
   });
 }
 
@@ -637,7 +642,7 @@ function renderLiveFeedPage() {
       <div class="live-feed-shell">
         <div class="section-header">
           <div>
-            <h1>Live Feed</h1>
+            <h1>Leaderboard</h1>
             <p>Team mileage by challenge week.</p>
           </div>
         </div>
@@ -651,6 +656,65 @@ function renderLiveFeedPage() {
         </section>
       </div>
     </section>
+  `;
+}
+
+function renderIndividualLogsPage() {
+  const rows = getIndividualMileageRows();
+  const totalMiles = rows.reduce((total, row) => total + row.miles, 0);
+
+  app.innerHTML = `
+    <section class="page content-band individual-logs-page">
+      <div class="single-column">
+        <div class="section-header">
+          <div>
+            <h1>Individual Logs</h1>
+            <p>Everyone listed alphabetically with total miles walked so far.</p>
+          </div>
+        </div>
+        <section class="panel individual-log-panel" aria-labelledby="individual-log-title">
+          <div class="section-header compact-header">
+            <div>
+              <h2 id="individual-log-title">Participant Mileage</h2>
+              <p>${rows.length} ${pluralize("participant", rows.length)} · ${formatNumber(totalMiles)} total ${pluralize("mile", totalMiles)}</p>
+            </div>
+          </div>
+          ${renderIndividualLogsTable(rows)}
+        </section>
+      </div>
+    </section>
+  `;
+}
+
+function renderIndividualLogsTable(rows) {
+  if (!rows.length) {
+    return `<p class="muted">No team members have signed up yet.</p>`;
+  }
+
+  return `
+    <div class="individual-log-table-wrap">
+      <table class="individual-log-table">
+        <thead>
+          <tr>
+            <th scope="col">Person</th>
+            <th scope="col">Team</th>
+            <th scope="col">Total Miles</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows
+            .map(
+              (row) => `
+                <tr>
+                  <td>${escapeHtml(row.name)}</td>
+                  <td>${escapeHtml(row.teamName)}</td>
+                  <td>${formatNumber(row.miles)}</td>
+                </tr>`
+            )
+            .join("")}
+        </tbody>
+      </table>
+    </div>
   `;
 }
 
@@ -1439,6 +1503,7 @@ function handleClick(event) {
   const kickoffCloseButton = event.target.closest("[data-kickoff-close]");
   const kickoffLink = event.target.closest("[data-kickoff-link]");
   const kickoffBackdrop = event.target.matches("[data-kickoff-modal]") ? event.target : null;
+  const navDropdownLink = event.target.closest("[data-nav-dropdown-link]");
   const toggle = event.target.closest("[data-team-toggle]");
   const replyToggle = event.target.closest("[data-reply-toggle]");
   const reactionButton = event.target.closest("[data-message-reaction]");
@@ -1449,6 +1514,10 @@ function handleClick(event) {
   if (kickoffCloseButton || kickoffLink || kickoffBackdrop) {
     dismissKickoffModal();
     return;
+  }
+
+  if (navDropdownLink) {
+    navDropdownLink.closest("details")?.removeAttribute("open");
   }
 
   if (reactionButton) {
@@ -1488,6 +1557,12 @@ function handleClick(event) {
 function handleKeydown(event) {
   if (event.key === "Escape" && document.querySelector("[data-kickoff-modal]")) {
     dismissKickoffModal();
+  }
+
+  if (event.key === "Escape") {
+    document.querySelectorAll(".nav-dropdown[open]").forEach((dropdown) => {
+      dropdown.removeAttribute("open");
+    });
   }
 }
 
@@ -1721,6 +1796,46 @@ function getTopMembers() {
       name: member.name,
       miles: roundMiles(member.miles)
     }));
+}
+
+function getIndividualMileageRows() {
+  const rows = new Map();
+
+  for (const team of state.teams) {
+    for (const member of team.members) {
+      rows.set(member.id, {
+        id: member.id,
+        name: member.fullName,
+        teamName: team.name,
+        miles: 0
+      });
+    }
+  }
+
+  for (const entry of state.distanceEntries || []) {
+    const memberId = cleanString(entry.memberId);
+    const memberName = cleanString(entry.memberName);
+    const key = rows.has(memberId)
+      ? memberId
+      : memberId || `legacy:${nameKey(memberName)}`;
+
+    if (!key || !memberName) continue;
+
+    const existing = rows.get(key) || {
+      id: key,
+      name: memberName,
+      teamName: cleanString(entry.teamName) || "Unassigned",
+      miles: 0
+    };
+
+    existing.miles = roundMiles(existing.miles + (Number(entry.totalMiles) || 0));
+    rows.set(key, existing);
+  }
+
+  return [...rows.values()].sort((a, b) =>
+    a.name.localeCompare(b.name) ||
+    a.teamName.localeCompare(b.teamName)
+  );
 }
 
 function addMemberMiles(map, name, miles) {

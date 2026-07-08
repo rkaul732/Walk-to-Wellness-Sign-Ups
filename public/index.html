@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Walk to Wellness Team Sign Ups</title>
-    <link rel="stylesheet" href="/styles.css?v=20260707b">
+    <link rel="stylesheet" href="/styles.css?v=20260708a">
   </head>
   <body>
     <header class="site-header">
@@ -21,7 +21,13 @@
         <a href="/#enter-distance" data-route="enter-distance">Enter Distance</a>
         <a href="/#messages" data-route="messages">Messages</a>
         <a href="/#join-team" data-route="join-team">Join a Team</a>
-        <a href="/#live-feed" data-route="live-feed">Live Feed</a>
+        <details class="nav-dropdown">
+          <summary data-route-group="live-feed individual-logs">Live Tracker</summary>
+          <div class="nav-dropdown-menu">
+            <a href="/#live-feed" data-route="live-feed" data-nav-dropdown-link>Leaderboard</a>
+            <a href="/#individual-logs" data-route="individual-logs" data-nav-dropdown-link>Individual Logs</a>
+          </div>
+        </details>
         <a href="/admin" data-route="admin">Admin</a>
       </nav>
     </header>
@@ -29,6 +35,6 @@
     <main id="app" aria-live="polite"></main>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
-    <script src="/app.js?v=20260707b" type="module"></script>
+    <script src="/app.js?v=20260708a" type="module"></script>
   </body>
 </html>
