@@ -51,6 +51,7 @@ let selectedDistanceTeamId = "";
 let selectedDistanceMemberId = "";
 let selectedDistanceMode = "daily";
 let selectedDistanceWeek = getDefaultChallengeWeek();
+let selectedLeaderboardChart = "team-weekly";
 let selectedIndividualLogView = "total";
 let selectedIndividualLogDate = getDefaultIndividualLogDate();
 let replyingToMessageId = null;
@@ -737,18 +738,25 @@ function getMessageThreads() {
 }
 
 function renderLiveFeedPage() {
+  const chartTitle = selectedLeaderboardChart === "average-per-person"
+    ? "Average Miles Per Person"
+    : "Miles By Team and Week";
+
   app.innerHTML = `
     <section class="page content-band live-feed-page">
       <div class="live-feed-shell">
         <div class="section-header">
           <div>
             <h1>Leaderboard</h1>
-            <p>Team mileage by challenge week.</p>
+            <p>Team mileage and per-person averages.</p>
           </div>
         </div>
-        <section class="panel chart-panel" aria-labelledby="team-weekly-title">
-          <h2 id="team-weekly-title">Miles by Team and Week</h2>
-          ${renderWeeklyStackedChart()}
+        <section class="panel chart-panel" aria-labelledby="leaderboard-chart-title">
+          <div class="chart-panel-header">
+            <h2 id="leaderboard-chart-title">${chartTitle}</h2>
+            ${renderLeaderboardChartTabs()}
+          </div>
+          ${renderLeaderboardChart()}
         </section>
         <section class="panel top-members-panel" aria-labelledby="top-members-title">
           <h2 id="top-members-title">Top Three Members</h2>
@@ -757,6 +765,35 @@ function renderLiveFeedPage() {
       </div>
     </section>
   `;
+}
+
+function renderLeaderboardChartTabs() {
+  const tabs = [
+    { id: "team-weekly", label: "Miles By Team and Week" },
+    { id: "average-per-person", label: "Average Miles Per Person" }
+  ];
+
+  return `
+    <div class="chart-tabs" role="tablist" aria-label="Leaderboard chart views">
+      ${tabs
+        .map((tab) => `
+          <button
+            type="button"
+            role="tab"
+            aria-selected="${selectedLeaderboardChart === tab.id}"
+            class="${selectedLeaderboardChart === tab.id ? "active" : ""}"
+            data-leaderboard-chart="${escapeAttribute(tab.id)}">
+            ${escapeHtml(tab.label)}
+          </button>`)
+        .join("")}
+    </div>
+  `;
+}
+
+function renderLeaderboardChart() {
+  return selectedLeaderboardChart === "average-per-person"
+    ? renderAverageMilesPerPersonChart()
+    : renderWeeklyStackedChart();
 }
 
 function renderIndividualLogsPage() {
@@ -1373,6 +1410,52 @@ function renderWeeklyStackedChart() {
   `;
 }
 
+function renderAverageMilesPerPersonChart() {
+  const rows = getTeamAverageRows();
+
+  if (!rows.length || rows.every((row) => row.averageMiles === 0)) {
+    return `<p class="muted">No distance entries yet.</p>`;
+  }
+
+  const axisMax = getAxisMax(Math.max(...rows.map((row) => row.averageMiles), 1));
+  const ticks = getAxisTicks(axisMax);
+  const latest = getLatestUpdateLabel();
+
+  return `
+    <div class="average-chart">
+      <div class="simple-bar-chart" style="--axis-max:${axisMax}">
+        ${rows
+          .map((row) => {
+            const width = (row.averageMiles / axisMax) * 100;
+
+            return `
+              <div class="simple-bar-row">
+                <div class="simple-bar-label">${escapeHtml(row.teamName)} (${row.memberCount})</div>
+                <div class="simple-bar-track">
+                  ${
+                    row.averageMiles > 0
+                      ? `<span class="simple-bar-fill" title="${escapeAttribute(`${row.teamName}: ${formatNumber(row.averageMiles)} average miles per person`)}" style="width:${width}%"></span>`
+                      : ""
+                  }
+                </div>
+                <div class="simple-bar-total">${formatNumber(row.averageMiles)}</div>
+              </div>`;
+          })
+          .join("")}
+        <div class="axis-row simple-axis-row">
+          <span></span>
+          <div class="axis-line">
+            ${ticks.map((tick) => `<span style="left:${(tick / axisMax) * 100}%">${formatNumber(tick)}</span>`).join("")}
+          </div>
+          <span></span>
+        </div>
+        <div class="axis-title">Average Miles Per Person</div>
+      </div>
+      <p class="last-updated">Last Updated: ${escapeHtml(latest)}</p>
+    </div>
+  `;
+}
+
 function renderTopMembers() {
   const members = getTopMembers();
 
@@ -1734,6 +1817,7 @@ function handleClick(event) {
   const kickoffLink = event.target.closest("[data-kickoff-link]");
   const kickoffBackdrop = event.target.matches("[data-kickoff-modal]") ? event.target : null;
   const navDropdownLink = event.target.closest("[data-nav-dropdown-link]");
+  const leaderboardChartButton = event.target.closest("[data-leaderboard-chart]");
   const toggle = event.target.closest("[data-team-toggle]");
   const replyToggle = event.target.closest("[data-reply-toggle]");
   const reactionButton = event.target.closest("[data-message-reaction]");
@@ -1763,6 +1847,12 @@ function handleClick(event) {
 
   if (navDropdownLink) {
     navDropdownLink.closest("details")?.removeAttribute("open");
+  }
+
+  if (leaderboardChartButton) {
+    selectedLeaderboardChart = leaderboardChartButton.dataset.leaderboardChart;
+    render();
+    return;
   }
 
   if (reactionButton) {
@@ -2294,6 +2384,21 @@ function getTeamWeeklyRows() {
   }
 
   return [...rows.values()].sort((a, b) => b.totalMiles - a.totalMiles || a.teamName.localeCompare(b.teamName));
+}
+
+function getTeamAverageRows() {
+  return getTeamWeeklyRows()
+    .map((row) => ({
+      ...row,
+      averageMiles: row.memberCount > 0
+        ? roundMiles(row.totalMiles / row.memberCount)
+        : 0
+    }))
+    .sort((a, b) =>
+      b.averageMiles - a.averageMiles ||
+      b.totalMiles - a.totalMiles ||
+      a.teamName.localeCompare(b.teamName)
+    );
 }
 
 function addWeeklyMiles(row, weekNumber, miles) {

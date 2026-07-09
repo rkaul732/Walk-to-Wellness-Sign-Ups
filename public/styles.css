@@ -1127,7 +1127,42 @@ select:disabled {
   overflow-x: auto;
 }
 
-.weekly-chart {
+.chart-panel-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 18px;
+}
+
+.chart-tabs {
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px;
+  background: #ffffff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.chart-tabs button {
+  min-height: 38px;
+  padding: 0 14px;
+  color: var(--ink);
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.chart-tabs button.active {
+  background: var(--button);
+  box-shadow: inset 0 0 0 2px var(--ink);
+}
+
+.weekly-chart,
+.average-chart {
   min-width: 980px;
 }
 
@@ -1153,26 +1188,30 @@ select:disabled {
   border-radius: 999px;
 }
 
-.stacked-chart {
+.stacked-chart,
+.simple-bar-chart {
   display: grid;
   gap: 0;
 }
 
-.stacked-row {
+.stacked-row,
+.simple-bar-row {
   display: grid;
   grid-template-columns: 190px minmax(620px, 1fr) 86px;
   align-items: center;
   min-height: 39px;
 }
 
-.stacked-label {
+.stacked-label,
+.simple-bar-label {
   padding-right: 12px;
   color: var(--ink);
   text-align: right;
   font-weight: 800;
 }
 
-.stacked-track {
+.stacked-track,
+.simple-bar-track {
   position: relative;
   display: flex;
   align-items: center;
@@ -1181,18 +1220,25 @@ select:disabled {
     repeating-linear-gradient(90deg, transparent 0, transparent calc(16.666% - 1px), #dadada calc(16.666% - 1px), #dadada 16.666%);
 }
 
-.stacked-segment {
+.stacked-segment,
+.simple-bar-fill {
   display: block;
   height: 24px;
 }
 
-.stacked-total {
+.simple-bar-fill {
+  background: linear-gradient(90deg, #e3a0cd 0%, #fffec9 100%);
+}
+
+.stacked-total,
+.simple-bar-total {
   padding-left: 8px;
   color: var(--ink);
   font-weight: 900;
 }
 
-.axis-row {
+.axis-row,
+.simple-axis-row {
   display: grid;
   grid-template-columns: 190px minmax(620px, 1fr) 86px;
   min-height: 30px;
@@ -1525,9 +1571,18 @@ select:disabled {
   }
 
   .hero-actions,
-  .section-header {
+  .section-header,
+  .chart-panel-header {
     display: grid;
     align-items: start;
+  }
+
+  .chart-tabs {
+    width: 100%;
+  }
+
+  .chart-tabs button {
+    flex: 1;
   }
 
   .stats-row,
