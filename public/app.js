@@ -61,6 +61,10 @@ let mentionablePeopleUsesStateFallback = true;
 let everyoneMentionAvailable = false;
 let activeMention = null;
 let toastTimer = null;
+let distanceSubmitRequested = false;
+let activeDistanceSubmission = false;
+let submissionProgressTimer = null;
+let submissionProgressValue = 0;
 
 document.addEventListener("DOMContentLoaded", init);
 window.addEventListener("hashchange", render);
@@ -441,7 +445,7 @@ function renderEnterDistancePage() {
                       : renderWeeklyDistanceInput(activeWeek)
                   }
                   <div class="button-row">
-                    <button class="primary-button" type="submit" ${selectedMembers.length ? "" : "disabled"}>Save Distance</button>
+                    <button class="primary-button" type="submit" data-distance-submit ${selectedMembers.length ? "" : "disabled"}>Save Distance</button>
                   </div>
                 </form>`
               : `<div class="empty-zero"><div><strong>0</strong><p>Create a team before entering distance.</p></div></div>`
@@ -1489,6 +1493,13 @@ async function handleSubmit(event) {
   const formData = Object.fromEntries(new FormData(form).entries());
 
   try {
+    if (action === "distance" && !distanceSubmitRequested) {
+      showToast("Use Save Distance when you are ready to submit your miles.", "error");
+      return;
+    }
+
+    distanceSubmitRequested = false;
+
     if (action === "register") {
       await postJson("/api/registrations", formData);
       showToast("Registration saved.");
@@ -1524,7 +1535,12 @@ async function handleSubmit(event) {
     }
 
     if (action === "distance") {
-      await submitDistance(form, formData);
+      const saved = await submitDistance(form, formData);
+
+      if (!saved) {
+        return;
+      }
+
       showToast("Distance saved.");
     }
 
@@ -1591,6 +1607,11 @@ async function handleSubmit(event) {
 }
 
 async function submitDistance(form, formData) {
+  if (activeDistanceSubmission) {
+    showToast("Distance is already submitting. Please wait for it to finish.", "error");
+    return false;
+  }
+
   const entryMode = formData.entryMode;
   const body = {
     teamId: formData.teamId,
@@ -1630,19 +1651,124 @@ async function submitDistance(form, formData) {
     body.weeklyMiles = Number(formData.weeklyMiles);
   }
 
+  activeDistanceSubmission = true;
+  setDistanceFormSubmitting(form, true);
+  showSubmissionProgress("Submitting Distance", "Preparing your mileage entry...");
+
   try {
+    updateSubmissionProgress(24, "Checking your entry...");
     await postJson("/api/distance", body);
+    updateSubmissionProgress(100, "Distance saved.");
   } catch (error) {
     if (error.status !== 409 || !error.payload?.duplicate) {
       throw error;
     }
 
+    updateSubmissionProgress(58, "Checking previous entries...");
+    hideSubmissionProgress();
     const duplicateAction = await showDuplicateDistanceModal(error.payload.duplicate);
+    showSubmissionProgress("Submitting Distance", "Saving your duplicate-entry choice...");
+    updateSubmissionProgress(72, "Saving your choice...");
     await postJson("/api/distance", {
       ...body,
       duplicateAction
     });
+    updateSubmissionProgress(100, "Distance saved.");
+  } finally {
+    await pause(350);
+    hideSubmissionProgress();
+    setDistanceFormSubmitting(form, false);
+    activeDistanceSubmission = false;
   }
+
+  return true;
+}
+
+function setDistanceFormSubmitting(form, isSubmitting) {
+  if (!form) return;
+
+  form.dataset.submitting = isSubmitting ? "true" : "false";
+
+  for (const control of form.querySelectorAll("button, input, select, textarea")) {
+    control.disabled = isSubmitting;
+  }
+
+  const submitButton = form.querySelector("[data-distance-submit]");
+
+  if (submitButton) {
+    if (!submitButton.dataset.defaultText) {
+      submitButton.dataset.defaultText = submitButton.textContent;
+    }
+
+    submitButton.textContent = isSubmitting
+      ? "Submitting..."
+      : submitButton.dataset.defaultText;
+  }
+}
+
+function showSubmissionProgress(title, message) {
+  hideSubmissionProgress();
+
+  submissionProgressValue = 8;
+
+  const backdrop = document.createElement("div");
+  backdrop.className = "submission-backdrop";
+  backdrop.dataset.submissionProgress = "true";
+  backdrop.innerHTML = `
+    <section class="submission-modal" role="alertdialog" aria-modal="true" aria-labelledby="submission-title">
+      <h2 id="submission-title">${escapeHtml(title)}</h2>
+      <p data-submission-message>${escapeHtml(message)}</p>
+      <div class="submission-progress" aria-label="Submission progress">
+        <span data-submission-bar style="width:${submissionProgressValue}%"></span>
+      </div>
+      <strong data-submission-percent>${submissionProgressValue}%</strong>
+    </section>
+  `;
+
+  document.body.append(backdrop);
+  submissionProgressTimer = window.setInterval(() => {
+    const nextValue = Math.min(92, submissionProgressValue + Math.max(1, Math.round((92 - submissionProgressValue) * 0.12)));
+    updateSubmissionProgress(nextValue);
+  }, 450);
+}
+
+function updateSubmissionProgress(percent, message = "") {
+  submissionProgressValue = Math.max(0, Math.min(100, Math.round(Number(percent) || 0)));
+
+  const backdrop = document.querySelector("[data-submission-progress]");
+  const bar = backdrop?.querySelector("[data-submission-bar]");
+  const percentText = backdrop?.querySelector("[data-submission-percent]");
+  const messageText = backdrop?.querySelector("[data-submission-message]");
+
+  if (bar) {
+    bar.style.width = `${submissionProgressValue}%`;
+  }
+
+  if (percentText) {
+    percentText.textContent = `${submissionProgressValue}%`;
+  }
+
+  if (message && messageText) {
+    messageText.textContent = message;
+  }
+
+  if (submissionProgressValue >= 100 && submissionProgressTimer) {
+    window.clearInterval(submissionProgressTimer);
+    submissionProgressTimer = null;
+  }
+}
+
+function hideSubmissionProgress() {
+  if (submissionProgressTimer) {
+    window.clearInterval(submissionProgressTimer);
+    submissionProgressTimer = null;
+  }
+
+  document.querySelector("[data-submission-progress]")?.remove();
+}
+
+function pause(milliseconds) {
+  return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
 }
 
 async function submitMessage(form) {
@@ -1818,6 +1944,7 @@ function handleClick(event) {
   const kickoffBackdrop = event.target.matches("[data-kickoff-modal]") ? event.target : null;
   const navDropdownLink = event.target.closest("[data-nav-dropdown-link]");
   const leaderboardChartButton = event.target.closest("[data-leaderboard-chart]");
+  const distanceSubmitButton = event.target.closest("[data-distance-submit]");
   const toggle = event.target.closest("[data-team-toggle]");
   const replyToggle = event.target.closest("[data-reply-toggle]");
   const reactionButton = event.target.closest("[data-message-reaction]");
@@ -1847,6 +1974,15 @@ function handleClick(event) {
 
   if (navDropdownLink) {
     navDropdownLink.closest("details")?.removeAttribute("open");
+  }
+
+  if (distanceSubmitButton) {
+    distanceSubmitRequested = true;
+    window.setTimeout(() => {
+      if (!activeDistanceSubmission) {
+        distanceSubmitRequested = false;
+      }
+    }, 900);
   }
 
   if (leaderboardChartButton) {
@@ -1899,6 +2035,10 @@ function handleKeydown(event) {
     return;
   }
 
+  if (handleDistanceInputKeydown(event)) {
+    return;
+  }
+
   if (event.key === "Escape" && document.querySelector("[data-kickoff-modal]")) {
     dismissKickoffModal();
   }
@@ -1908,6 +2048,30 @@ function handleKeydown(event) {
       dropdown.removeAttribute("open");
     });
   }
+}
+
+function handleDistanceInputKeydown(event) {
+  if (event.key !== "Enter") return false;
+  if (!event.target.matches("[data-mile-input]")) return false;
+
+  const form = event.target.closest('form[data-action="distance"]');
+
+  if (!form) return false;
+
+  event.preventDefault();
+
+  const mileInputs = [...form.querySelectorAll("[data-mile-input]")].filter((input) => !input.disabled);
+  const currentIndex = mileInputs.indexOf(event.target);
+  const nextInput = mileInputs[currentIndex + 1];
+
+  if (nextInput) {
+    nextInput.focus();
+    nextInput.select?.();
+  } else {
+    form.querySelector("[data-distance-submit]")?.focus();
+  }
+
+  return true;
 }
 
 function updateMentionPicker(input) {
