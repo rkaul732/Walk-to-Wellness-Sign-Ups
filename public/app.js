@@ -363,21 +363,22 @@ function renderCreateTeamPage() {
 }
 
 function renderEnterDistancePage() {
-  const selectedTeam = state.teams.find((team) => team.id === selectedDistanceTeamId) || state.teams[0] || null;
+  const selectedTeam = state.teams.find((team) => team.id === selectedDistanceTeamId) || null;
 
-  if (selectedTeam && selectedDistanceTeamId !== selectedTeam.id) {
-    selectedDistanceTeamId = selectedTeam.id;
+  if (selectedDistanceTeamId && !selectedTeam) {
+    selectedDistanceTeamId = "";
   }
 
   const selectedMembers = selectedTeam?.members || [];
-  const selectedMember = selectedMembers.find((member) => member.id === selectedDistanceMemberId) || selectedMembers[0] || null;
+  const selectedMember = selectedMembers.find((member) => member.id === selectedDistanceMemberId) || null;
 
-  if (selectedMember && selectedDistanceMemberId !== selectedMember.id) {
-    selectedDistanceMemberId = selectedMember.id;
+  if (selectedDistanceMemberId && !selectedMember) {
+    selectedDistanceMemberId = "";
   }
 
   const weeks = getChallengeWeeks();
   const activeWeek = weeks.find((week) => week.weekNumber === Number(selectedDistanceWeek)) || weeks[0];
+  const canEnterDistance = Boolean(selectedTeam && selectedMember);
 
   app.innerHTML = `
     <section class="page content-band">
@@ -398,6 +399,7 @@ function renderEnterDistancePage() {
                     <label>
                       Team
                       <select name="teamId" data-distance-team required>
+                        <option value="" disabled ${selectedTeam ? "" : "selected"}>Select a team</option>
                         ${state.teams
                           .map(
                             (team) => `<option value="${escapeAttribute(team.id)}" ${team.id === selectedDistanceTeamId ? "selected" : ""}>${escapeHtml(team.name)}</option>`
@@ -407,12 +409,16 @@ function renderEnterDistancePage() {
                     </label>
                     <label>
                       Team Member
-                      <select name="memberId" data-distance-member required ${selectedMembers.length ? "" : "disabled"}>
+                      <select name="memberId" data-distance-member required ${selectedTeam && selectedMembers.length ? "" : "disabled"}>
                         ${
-                          selectedMembers.length
+                          !selectedTeam
+                            ? `<option value="">Select a team first</option>`
+                            : selectedMembers.length
                             ? selectedMembers
-                                .map(
-                                  (member) => `<option value="${escapeAttribute(member.id)}" ${member.id === selectedDistanceMemberId ? "selected" : ""}>${escapeHtml(member.fullName)}</option>`
+                                .map((member, index) => index === 0
+                                  ? `<option value="" disabled ${selectedMember ? "" : "selected"}>Select a team member</option>
+                                     <option value="${escapeAttribute(member.id)}" ${member.id === selectedDistanceMemberId ? "selected" : ""}>${escapeHtml(member.fullName)}</option>`
+                                  : `<option value="${escapeAttribute(member.id)}" ${member.id === selectedDistanceMemberId ? "selected" : ""}>${escapeHtml(member.fullName)}</option>`
                                 )
                                 .join("")
                             : `<option value="">No members yet</option>`
@@ -441,11 +447,11 @@ function renderEnterDistancePage() {
                   </div>
                   ${
                     selectedDistanceMode === "daily"
-                      ? renderDailyDistanceInputs(activeWeek)
-                      : renderWeeklyDistanceInput(activeWeek)
+                      ? renderDailyDistanceInputs(activeWeek, selectedTeam, selectedMember, !canEnterDistance)
+                      : renderWeeklyDistanceInput(activeWeek, !canEnterDistance)
                   }
                   <div class="button-row">
-                    <button class="primary-button" type="submit" data-distance-submit ${selectedMembers.length ? "" : "disabled"}>Save Distance</button>
+                    <button class="primary-button" type="submit" data-distance-submit ${canEnterDistance ? "" : "disabled"}>Save Distance</button>
                   </div>
                 </form>`
               : `<div class="empty-zero"><div><strong>0</strong><p>Create a team before entering distance.</p></div></div>`
@@ -456,33 +462,48 @@ function renderEnterDistancePage() {
   `;
 }
 
-function renderDailyDistanceInputs(week) {
+function renderDailyDistanceInputs(week, selectedTeam, selectedMember, disabled = false) {
+  const existingMilesByDate = getExistingDailyMilesByDate(selectedTeam, selectedMember, week.weekNumber);
+
   return `
-    <fieldset class="daily-calendar">
+    <fieldset class="daily-calendar" ${disabled ? "disabled" : ""}>
       <legend>Daily Totals for Week ${week.weekNumber}</legend>
-      <p class="muted small daily-entry-note">Enter miles for one day or multiple days. Leave days blank if you are not submitting them right now.</p>
+      <p class="muted small daily-entry-note">${
+        disabled
+          ? "Select a team and team member before entering distance."
+          : "Saved daily miles are preloaded. Add a new day or update a saved day, then click Save Distance."
+      }</p>
       <div class="day-grid">
         ${week.days
-          .map(
-            (day) => `
-              <label class="day-entry">
+          .map((day) => {
+            const existingMiles = existingMilesByDate.get(day.isoDate) || 0;
+
+            return `
+              <label class="day-entry ${existingMiles > 0 ? "day-entry-saved" : ""}">
                 <span>${escapeHtml(day.dayName)}</span>
                 <small>${escapeHtml(day.dateLabel)}</small>
-                <input name="daily_${day.dayIndex}" inputmode="decimal" placeholder="0" data-mile-input>
-              </label>`
-          )
+                <input
+                  name="daily_${day.dayIndex}"
+                  inputmode="decimal"
+                  placeholder="0"
+                  value="${existingMiles > 0 ? escapeAttribute(formatMilesInput(existingMiles)) : ""}"
+                  data-existing-miles="${existingMiles > 0 ? escapeAttribute(formatMilesInput(existingMiles)) : ""}"
+                  data-mile-input>
+                ${existingMiles > 0 ? `<em>Saved</em>` : ""}
+              </label>`;
+          })
           .join("")}
       </div>
     </fieldset>
   `;
 }
 
-function renderWeeklyDistanceInput(week) {
+function renderWeeklyDistanceInput(week, disabled = false) {
   return `
-    <label class="weekly-entry">
+    <label class="weekly-entry ${disabled ? "weekly-entry-disabled" : ""}">
       Enter Total Miles for Week ${week.weekNumber}
       <span>${escapeHtml(week.rangeLabel)}</span>
-      <input name="weeklyMiles" inputmode="decimal" placeholder="0" required data-mile-input>
+      <input name="weeklyMiles" inputmode="decimal" placeholder="0" required data-mile-input ${disabled ? "disabled" : ""}>
     </label>
   `;
 }
@@ -1624,25 +1645,33 @@ async function submitDistance(form, formData) {
     const dailyMiles = getChallengeWeeks()
       .find((week) => week.weekNumber === body.weekNumber)
       .days.map((day) => {
-        const value = cleanString(formData[`daily_${day.dayIndex}`]);
+        const input = form?.elements?.[`daily_${day.dayIndex}`];
+        const value = cleanString(input?.value ?? formData[`daily_${day.dayIndex}`]);
 
         if (!value) {
           return null;
         }
 
         assertMiles(value, `${day.dayName} miles`);
+        const miles = roundMiles(Number(value));
+        const existingMiles = roundMiles(Number(input?.dataset.existingMiles) || 0);
+
+        if (existingMiles > 0 && miles === existingMiles) {
+          return null;
+        }
+
         return {
           dayIndex: day.dayIndex,
           dayName: day.dayName,
           isoDate: day.isoDate,
           dateLabel: day.dateLabel,
-          miles: Number(value)
+          miles
         };
       })
       .filter((day) => day && day.miles > 0);
 
     if (!dailyMiles.length) {
-      throw new Error("Please enter miles greater than zero for at least one day.");
+      throw new Error("Please enter or update miles greater than zero for at least one day.");
     }
 
     body.dailyMiles = dailyMiles;
@@ -2374,6 +2403,7 @@ function handleChange(event) {
 
   if (event.target.matches("[data-distance-member]")) {
     selectedDistanceMemberId = event.target.value;
+    render();
   }
 
   if (event.target.matches("[data-distance-mode]")) {
@@ -2629,6 +2659,44 @@ function getIndividualMileageRows(options = {}) {
     a.name.localeCompare(b.name) ||
     a.teamName.localeCompare(b.teamName)
   );
+}
+
+function getExistingDailyMilesByDate(selectedTeam, selectedMember, weekNumber) {
+  const milesByDate = new Map();
+  const selectedTeamId = cleanString(selectedTeam?.id);
+  const selectedTeamName = nameKey(selectedTeam?.name || "");
+  const selectedMemberId = cleanString(selectedMember?.id);
+  const selectedMemberName = nameKey(selectedMember?.fullName || "");
+
+  if (!selectedMemberId && !selectedMemberName) {
+    return milesByDate;
+  }
+
+  for (const entry of state.distanceEntries || []) {
+    if (entry.entryMode !== "daily" || Number(entry.weekNumber) !== Number(weekNumber)) {
+      continue;
+    }
+
+    const entryTeamMatches = cleanString(entry.teamId) === selectedTeamId
+      || (!entry.teamId && selectedTeamName && nameKey(entry.teamName) === selectedTeamName);
+    const entryMemberMatches = cleanString(entry.memberId) === selectedMemberId
+      || (!entry.memberId && selectedMemberName && nameKey(entry.memberName) === selectedMemberName);
+
+    if (!entryTeamMatches || !entryMemberMatches) {
+      continue;
+    }
+
+    for (const day of entry.dailyMiles || []) {
+      const isoDate = cleanString(day.isoDate);
+      const miles = Number(day.miles) || 0;
+
+      if (!isoDate || miles <= 0) continue;
+
+      milesByDate.set(isoDate, roundMiles((milesByDate.get(isoDate) || 0) + miles));
+    }
+  }
+
+  return milesByDate;
 }
 
 function getEntryMilesForDate(entry, selectedDate) {

@@ -820,6 +820,11 @@ select:disabled {
   border-radius: 8px;
 }
 
+.day-entry-saved {
+  border-color: var(--blue);
+  box-shadow: inset 0 0 0 1px rgba(55, 111, 152, 0.16);
+}
+
 .day-entry span {
   color: var(--blue);
 }
@@ -830,8 +835,19 @@ select:disabled {
   font-weight: 700;
 }
 
+.day-entry em {
+  color: var(--teal);
+  font-size: 0.78rem;
+  font-style: normal;
+  font-weight: 900;
+}
+
 .weekly-entry {
   max-width: 420px;
+}
+
+.weekly-entry-disabled {
+  opacity: 0.72;
 }
 
 .recap-section {
